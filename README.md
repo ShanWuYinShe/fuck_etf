@@ -49,6 +49,15 @@ python3 recommend_etf.py --top 15         # 推荐 15 只
 
 监控只做数据采集；分析由人工（或 Codex 任务）读取 `.workwork/data/` 后执行，禁止全自动下单。
 
+### 自动化（launchd 定时任务）
+
+```bash
+./automations/install.sh    # 安装：工作日 08:40 晨间预案 + 09:25 盘中监控会话（15:05 自动结束）
+./automations/uninstall.sh  # 卸载
+```
+
+日志位于 `~/Library/Logs/etf-morning-plan.log` 与 `~/Library/Logs/etf-market-monitor.log`。
+
 查看报告：
 
 - [Markdown 报告](.workwork/report/etf_report.md)
