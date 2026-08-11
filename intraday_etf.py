@@ -1170,7 +1170,7 @@ def main():
         r["news_items"] = len(items)
         if sent == "利空" and r["op"]["action"] in ("买入", "加仓"):
             r["op"]["action"] = "观望"
-            r["op"]["order_type"] = "观望（消息面利空主导，暂停买入）"
+            r["op"]["order_type"] = "暂停执行（消息面利空主导）"
             r["op"]["suspended"] = True
             r["op"]["notes"].append("消息面利空与买入信号背离：以消息面为主导，不追不接，待利空消化后再评估")
         elif sent == "利多" and r["op"]["action"] in ("卖出", "减仓"):
