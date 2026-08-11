@@ -535,13 +535,22 @@ def _signal_t1(r, holding, price, high, low, vwap, pct, pos,
             "notes": ["持仓者市价减仓；不接飞刀，等企稳"],
         }
     else:
-        op = {
-            "action": "买入" if buy_low < price else "观望", "order_type": "持有不动+提前低价挂单",
-            "trigger": buy_low, "trig_cond": "≤",
-            "stop": round3(buy_low * 0.985), "target": round3(r.get("d10_high") or price * 1.03),
-            "signal": "中性区间（日内位置0.15-0.85）",
-            "notes": ["挂单价=MAX(5日低点,现价×0.97)，仓位≤1/3"],
-        }
+        if holding:
+            op = {
+                "action": "持有", "order_type": "持有不动",
+                "trigger": None, "trig_cond": None,
+                "stop": None, "target": None,
+                "signal": "中性区间（日内位置0.15-0.85）",
+                "notes": ["已持仓不加仓不追高；跌破止损线或反弹至减仓区再行动"],
+            }
+        else:
+            op = {
+                "action": "买入", "order_type": "提前低价挂单",
+                "trigger": buy_low, "trig_cond": "≤",
+                "stop": round3(buy_low * 0.985), "target": round3(r.get("d10_high") or price * 1.03),
+                "signal": "中性区间（日内位置0.15-0.85）",
+                "notes": ["挂单价=MAX(5日低点,现价×0.97)，仓位≤1/3"],
+            }
     return finalize_op(r, op)
 
 
@@ -668,7 +677,15 @@ def calendar_reminders(today):
 
 def load_holdings():
     raw = load_json(HOLDINGS_PATH)
-    return raw if isinstance(raw, list) else []
+    if isinstance(raw, dict) and isinstance(raw.get("accounts"), list):
+        return raw["accounts"]
+    if isinstance(raw, list):  # 兼容旧格式：单账号列表
+        return [{"name": "默认账号", "positions": raw}]
+    return []
+
+
+def all_positions(accounts):
+    return [p for acct in accounts for p in acct.get("positions", [])]
 
 
 def holding_status(h, r):
@@ -743,27 +760,43 @@ def build_report(records, holdings, news_rows, idxs, boards_up, boards_down,
         lines.append(f"```\n{one_line(r, r['op'])}\n```")
     lines.append("")
     lines.append("## 三、持仓跟踪\n")
-    lines.append("| 代码 | 名称 | 成本 | 现价 | 当前浮盈% | 处理线 | 状态 |")
-    lines.append("|---|---|---|---|---|---|---|")
-    for h in holdings:
-        r = records.get(h["code"])
-        status, pnl = holding_status(h, r)
-        if r and r["op"]["action"] == "减仓" and "减仓" not in status:
-            status += "（偏弱减仓信号）"
-        handle = []
-        if h.get("stop") is not None:
-            handle.append(f"止损{h['stop']:.3f}")
-        if h.get("reduce_low") is not None:
-            handle.append(f"减仓{h['reduce_low']:.3f}-{h['reduce_high']:.3f}")
-        if h.get("add") is not None:
-            handle.append(f"加仓{h['add']:.3f}")
-        if h.get("add_low") is not None:
-            handle.append(f"加仓{h['add_low']:.3f}-{h['add_high']:.3f}")
-        if h.get("target") is not None:
-            handle.append(f"止盈{h['target']:.3f}")
-        price = fmt_price(r["price"]) if r else "—"
-        pnl_s = pct_str(pnl * 100, 1) if r else "—"
-        lines.append(f"| {h['code']} | {h['name']} | {h['cost']:.3f} | {price} | {pnl_s} | {'，'.join(handle)} | {status} |")
+    lines.append("| 账号 | 代码 | 名称 | 数量(份) | 成本 | 现价 | 当前浮盈% | 处理线 | 状态 |")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
+    agg = {}
+    for acct in holdings:
+        for h in acct.get("positions", []):
+            r = records.get(h["code"])
+            status, pnl = holding_status(h, r)
+            if r and r["op"]["action"] == "减仓" and "减仓" not in status:
+                status += "（偏弱减仓信号）"
+            handle = []
+            if h.get("stop") is not None:
+                handle.append(f"止损{h['stop']:.3f}")
+            if h.get("reduce_low") is not None:
+                handle.append(f"减仓{h['reduce_low']:.3f}-{h['reduce_high']:.3f}")
+            if h.get("add") is not None:
+                handle.append(f"加仓{h['add']:.3f}")
+            if h.get("add_low") is not None:
+                handle.append(f"加仓{h['add_low']:.3f}-{h['add_high']:.3f}")
+            if h.get("target") is not None:
+                handle.append(f"止盈{h['target']:.3f}")
+            price = fmt_price(r["price"]) if r else "—"
+            pnl_s = pct_str(pnl * 100, 1) if r else "—"
+            shares = h.get("shares", "—")
+            lines.append(f"| {acct.get('name', '—')} | {h['code']} | {h['name']} | {shares} | {h['cost']:.3f} | {price} | {pnl_s} | {'，'.join(handle)} | {status} |")
+            if code := h["code"]:
+                cost_sum = h["cost"] * (h.get("shares") or 0)
+                a = agg.setdefault(code, {"shares": 0, "cost_sum": 0.0, "name": h["name"]})
+                a["shares"] += h.get("shares") or 0
+                a["cost_sum"] += cost_sum
+    if agg:
+        parts = []
+        for code, a in agg.items():
+            if a["shares"]:
+                blended = a["cost_sum"] / a["shares"]
+                parts.append(f"{code} {a['name']} 合计{a['shares']}份 综合成本{blended:.3f}")
+        lines.append("")
+        lines.append("汇总：" + "；".join(parts))
     lines.append("")
     lines.append("## 四、大盘与板块\n")
     for i in idxs:
@@ -825,7 +858,8 @@ def final_summary(records, idxs, boards_up, boards_down, holdings):
         op_txt.append(f"{r['code']}震荡{r['op']['action']}")
     if op_txt:
         parts.append("**操作核心**：" + "，".join(op_txt) + "。")
-    risks = [f"{h['code']}:{status if status != '持有观察' else r['op']['action']}" for h in holdings
+    risks = [f"{acct.get('name', '')} {h['code']}:{status if status != '持有观察' else r['op']['action']}"
+             for acct in holdings for h in acct.get("positions", [])
              for r in [records.get(h["code"])] if r
              for status, _ in [holding_status(h, r)]
              if "跌破止损" in status or "减仓" in status or "止盈" in status
@@ -880,7 +914,8 @@ def main():
     today = datetime.now().strftime("%Y-%m-%d")
 
     holdings = load_holdings()
-    hold_codes = {h["code"] for h in holdings}
+    positions = all_positions(holdings)
+    hold_codes = {p["code"] for p in positions}
     records = {}
     for code in codes:
         price, src_note = merge_price(tencent, sina, eastmoney, code)
@@ -913,8 +948,8 @@ def main():
         }
         r["op"] = decide_signal(r, code in hold_codes)
         # 持仓配置的止盈线优先于规则目标（如 159691 止盈 1.215）
-        h_target = next((h.get("target") for h in holdings
-                         if h["code"] == code and h.get("target")), None)
+        h_target = next((p.get("target") for p in positions
+                         if p["code"] == code and p.get("target")), None)
         if h_target:
             r["op"]["target"] = h_target
             r["op"].pop("expected", None)
@@ -949,10 +984,11 @@ def main():
     for r in records.values():
         print(one_line(r, r["op"]))
     print("持仓跟踪：")
-    for h in holdings:
-        r = records.get(h["code"])
-        status, pnl = holding_status(h, r)
-        print(f"  {h['code']} {h['name']} 成本{h['cost']:.3f} 浮盈{pct_str(pnl*100,1)} | {status}")
+    for acct in holdings:
+        for h in acct.get("positions", []):
+            r = records.get(h["code"])
+            status, pnl = holding_status(h, r)
+            print(f"  {acct.get('name','')} {h['code']} {h['name']} {h.get('shares','—')}份 成本{h['cost']:.3f} 浮盈{pct_str(pnl*100,1)} | {status}")
     print("最终总结：")
     print(final_summary(records, idxs, boards_up, boards_down, holdings))
     print(f"\n报告已生成：{out_md} / {out_latest}")
