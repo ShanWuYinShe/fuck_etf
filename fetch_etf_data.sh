@@ -74,18 +74,28 @@ curl -sS --max-time 15 -H 'Referer: https://finance.sina.com.cn' \
   "https://hq.sinajs.cn/list=${SINA_URL#,}" \
   | iconv -f GBK -t UTF-8 > "$DATA_DIR/realtime_sina.txt" || true
 
-# ---- 3. 实时行情校验：东方财富（secid：sh=1，sz=0）----
-EM_SECIDS=""
-for c in "${CODES[@]}"; do
-  mk="$(market_of "$c")"
-  [[ "$mk" == "sh" ]] && em="1" || em="0"
-  EM_SECIDS+=",$em$c"
-done
-fetch_save realtime_eastmoney.json \
-  "https://push2.eastmoney.com/api/qt/ulist.np/get?secids=${EM_SECIDS#,}&fields=f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18" \
-  "http://push2.eastmoney.com/api/qt/ulist.np/get?secids=${EM_SECIDS#,}&fields=f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18" \
-  "https://push2delay.eastmoney.com/api/qt/ulist.np/get?secids=${EM_SECIDS#,}&fields=f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18" \
-  || true
+# ---- 3. 实时行情校验：东方财富（secid：sh=1，sz=0），拆两批避免限流 ----
+em_mk() {
+  [[ "$(market_of "$1")" == "sh" ]] && echo "1" || echo "0"
+}
+fetch_em_batch() {
+  local name="$1"; shift
+  local sec=""
+  for c in "$@"; do
+    sec+=",$(em_mk "$c").$c"
+  done
+  fetch_save "$name" \
+    "https://push2.eastmoney.com/api/qt/ulist.np/get?secids=${sec#,}&fields=f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18,f62" \
+    "http://push2.eastmoney.com/api/qt/ulist.np/get?secids=${sec#,}&fields=f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18,f62" \
+    "https://push2delay.eastmoney.com/api/qt/ulist.np/get?secids=${sec#,}&fields=f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18,f62" \
+    || true
+}
+if (( ${#CODES[@]} <= 5 )); then
+  fetch_em_batch realtime_eastmoney.json "${CODES[@]}"
+else
+  fetch_em_batch realtime_eastmoney.json ${CODES[1,5]}
+  fetch_em_batch realtime_eastmoney_2.json ${CODES[6,-1]}
+fi
 
 # ---- 4. 财经快讯（新浪 7x24，最近 30 条）----
 curl -sS --max-time 15 \
@@ -131,6 +141,19 @@ curl -sS --max-time 15 -H 'Referer: https://finance.sina.com.cn' \
   "https://hq.sinajs.cn/list=hf_GC,hf_CL,hf_ES,hf_NQ,hf_YM,fx_susdcny" \
   | iconv -f GBK -t UTF-8 > "$DATA_DIR/global_sina.txt" || true
 
+# ---- 6.2 ETF 份额/规模（东财 stock/get）+ 最新季报重仓股（天天基金移动接口）----
+for c in "${CODES[@]}"; do
+  em="$(em_mk "$c")"
+  fetch_save "fund_${c}.json" \
+    "https://push2.eastmoney.com/api/qt/stock/get?secid=${em}.${c}&fields=f57,f58,f62,f84,f85" \
+    "http://push2.eastmoney.com/api/qt/stock/get?secid=${em}.${c}&fields=f57,f58,f62,f84,f85" \
+    "https://push2delay.eastmoney.com/api/qt/stock/get?secid=${em}.${c}&fields=f57,f58,f62,f84,f85" \
+    || true
+  curl -sS --max-time 12 -A 'Mozilla/5.0' \
+    "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition?FCODE=${c}&deviceid=Wap&plat=Wap&product=EFund&version=6.2.8" \
+    -o "$DATA_DIR/holdings_${c}.json" || true
+done
+
 # ---- 7. 逐只：分时（VWAP）+ 日/周/月线 ----
 for c in "${CODES[@]}"; do
   mk="$(market_of "$c")"
@@ -151,4 +174,4 @@ for c in "${CODES[@]}"; do
   done
 done
 
-echo "完成：${#CODES[@]} 只 ETF 的实时三源 + 分时 + 日/周/月线 + 三源快讯 + 指数 + 板块 + 外盘已保存到 $DATA_DIR/"
+echo "完成：${#CODES[@]} 只 ETF 的实时三源 + 分时 + 日/周/月线 + 三源快讯 + 指数 + 板块 + 外盘 + 份额/重仓已保存到 $DATA_DIR/"

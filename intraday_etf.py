@@ -188,6 +188,7 @@ def parse_eastmoney(raw):
                 "low": float(d["f16"]) / 1000.0,
                 "open": float(d["f17"]) / 1000.0,
                 "prev_close": float(d["f18"]) / 1000.0,
+                "main_inflow": d.get("f62"),
             }
         except (KeyError, ValueError, TypeError):
             continue
@@ -728,6 +729,39 @@ def global_summary():
     return out
 
 
+def fund_info(code):
+    raw = load_json(os.path.join(DATA_DIR, f"fund_{code}.json"))
+    if not raw or not raw.get("data"):
+        return None
+    d = raw["data"]
+    return {"shares": d.get("f84"), "main_inflow": d.get("f62"), "name": d.get("f58")}
+
+
+def top_holdings(code, n=5):
+    raw = load_json(os.path.join(DATA_DIR, f"holdings_{code}.json"))
+    if not raw or not raw.get("Datas"):
+        return []
+    stocks = raw["Datas"].get("fundStocks", [])
+    return [f"{s.get('GPJC', '')}{s.get('JZBL', '')}%" for s in stocks[:n] if s.get("GPJC")]
+
+
+def shares_change(code, market_date, shares):
+    """把当日份额写入本地缓存，返回相对上次采集日的份额变化（首次为 None）。"""
+    path = os.path.join(DATA_DIR, "shares_cache.json")
+    cache = load_json(path) or {}
+    entry = cache.get(code, {})
+    chg = None
+    if shares and entry.get("shares") and entry.get("date") != market_date:
+        chg = shares / entry["shares"] - 1
+    cache[code] = {"date": market_date, "shares": shares}
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False)
+    except OSError:
+        pass
+    return chg
+
+
 # ---------------------------------------------------------------- 日历提醒
 
 def second_weekday(y, m, weekday):
@@ -843,7 +877,7 @@ def one_line(r, op):
 
 
 def build_report(records, holdings, news_rows, idxs, boards_up, boards_down,
-                 globals_rows, cal_notes, data_time, fetch_at):
+                 globals_rows, fund_rows, cal_notes, data_time, fetch_at):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"# A股ETF交易辅助 v2.0 分析（{now}）\n",
              f"> 数据时间：{data_time}（采集于 {fetch_at}）\n",
@@ -921,14 +955,31 @@ def build_report(records, holdings, news_rows, idxs, boards_up, boards_down,
             f"{b['name']}{pct_str(b['pct'])}" + (f"（主力{b['inflow']/1e8:+.1f}亿）" if b.get("inflow") else "")
             for b in boards_down))
     lines.append("")
-    lines.append("## 六、明日关注与日历\n")
+    lines.append("## 六、资金面（份额/主力/重仓）\n")
+    if fund_rows:
+        for f in fund_rows:
+            shares_yi = f["shares"] / 1e8 if f.get("shares") else None
+            scale_yi = shares_yi * f["price"] if shares_yi else None
+            chg = pct_str(f["shares_chg"] * 100, 2) if f.get("shares_chg") is not None else "首次记录"
+            inflow = f"{f['inflow']/1e8:+.2f}亿" if f.get("inflow") is not None else "—"
+            parts = [f"- {f['code']} {f['name']}"]
+            if shares_yi:
+                parts.append(f"份额{shares_yi:.1f}亿份（{chg}）规模{scale_yi:.1f}亿")
+            parts.append(f"主力{inflow}")
+            if f.get("top"):
+                parts.append(f"重仓(季报):{f['top']}")
+            lines.append(" ".join(parts))
+    else:
+        lines.append("（份额/重仓数据缺失）")
+    lines.append("")
+    lines.append("## 七、明日关注与日历\n")
     if cal_notes:
         for n in cal_notes:
             lines.append(f"- {n}")
     else:
         lines.append("- 暂无临近日历事件；按晨间预案（8:40）复核隔夜消息与外盘。")
     lines.append("")
-    lines.append("## 七、自检清单\n")
+    lines.append("## 八、自检清单\n")
     anomalies = [r["code"] for r in records.values() if abs(r["pct"]) >= 2]
     checklist = [
         ("数据时间标注（精确到分钟）", bool(data_time)),
@@ -1010,7 +1061,9 @@ def main():
 
     tencent = parse_tencent(read_text(os.path.join(DATA_DIR, "realtime.txt")))
     sina = parse_sina(read_text(os.path.join(DATA_DIR, "realtime_sina.txt")))
-    eastmoney = parse_eastmoney(load_json(os.path.join(DATA_DIR, "realtime_eastmoney.json")))
+    eastmoney = {}
+    for em_file in ("realtime_eastmoney.json", "realtime_eastmoney_2.json"):
+        eastmoney.update(parse_eastmoney(load_json(os.path.join(DATA_DIR, em_file))) or {})
     fetch_at = fetch_time()
 
     if not tencent:
@@ -1074,10 +1127,24 @@ def main():
     idxs = index_summary()
     boards_up, boards_down = board_summary()
     globals_rows = global_summary()
+    market_date = data_time.split(" ")[0] if data_time else datetime.now().strftime("%Y-%m-%d")
+    fund_rows = []
+    for code, r in records.items():
+        fi = fund_info(code)
+        if not fi:
+            continue
+        fund_rows.append({
+            "code": code, "name": r["name"], "price": r["price"],
+            "shares": fi.get("shares"),
+            "inflow": eastmoney.get(code, {}).get("main_inflow"),
+            "shares_chg": shares_change(code, market_date, fi.get("shares")),
+            "top": "、".join(top_holdings(code)),
+        })
     cal_notes = calendar_reminders(datetime.now().date())
 
     report = build_report(records, holdings, news_rows, idxs, boards_up,
-                          boards_down, globals_rows, cal_notes, data_time, fetch_at)
+                          boards_down, globals_rows, fund_rows, cal_notes,
+                          data_time, fetch_at)
     date_tag = datetime.now().strftime("%Y%m%d")
     out_md = os.path.join(REPORT_DIR, f"intraday_{date_tag}.md")
     out_latest = os.path.join(REPORT_DIR, "intraday_latest.md")
@@ -1099,6 +1166,10 @@ def main():
         pct = pct_str(g["pct"]) if g.get("pct") is not None else ""
         price = f"{g['price']:.4f}" if g.get("kind") == "汇率" else f"{g['price']:.2f}"
         print(f"  {g['name']} {price} {pct}（{g.get('ts','')}）")
+    print("资金面（份额/主力/重仓）：")
+    for f in fund_rows:
+        inflow = f"{f['inflow']/1e8:+.2f}亿" if f.get("inflow") is not None else "—"
+        print(f"  {f['code']} {f['name']} 主力{inflow} 重仓:{f['top'][:60]}")
     print("逐只信号：")
     for r in records.values():
         print(one_line(r, r["op"]))
