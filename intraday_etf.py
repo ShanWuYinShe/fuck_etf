@@ -46,6 +46,8 @@ NEWS_KEYWORDS = [
     "出口", "地产", "光伏", "储能", "机器人", "军工", "消费", "白酒",
     "涨价", "减产", "库存", "外资", "主力资金", "龙虎榜", "业绩",
     "回购", "增持", "减持", "美股", "纳指", "标普", "道指", "恒指",
+    "铜", "铝", "镍", "钨", "汽车", "新能源", "英伟达", "苹果", "中芯",
+    "宁德时代", "光模块", "存储", "医保",
 ]
 
 NEWS_LIDUO = [
@@ -63,6 +65,20 @@ NEWS_LIKONG = [
 # 关键词命中但明显非金融语境时排除（避免“黄金大五座/黄金周”等误报）
 NEWS_CONTEXT_EXCLUDE = {
     "黄金": ["黄金大", "黄金周", "黄金档", "黄金时代", "黄金十年", "黄金期"],
+}
+
+# 各 ETF 对应的消息面主题关键词（与 NEWS_KEYWORDS 交集生效）
+CODE_THEMES = {
+    "159831": ["黄金", "金价", "避险", "美元", "美联储", "加息", "降息", "通胀", "CPI"],
+    "159691": ["港股", "红利", "恒指", "美债", "收益率"],
+    "516650": ["有色", "铜", "铝", "镍", "稀土"],
+    "562800": ["稀土", "锂", "有色", "钨"],
+    "159516": ["半导体", "芯片", "存储", "中芯"],
+    "588200": ["半导体", "芯片", "AI", "算力", "英伟达", "中芯"],
+    "515050": ["通信", "AI", "算力", "光模块", "苹果"],
+    "159796": ["电池", "锂", "光伏", "储能", "宁德时代"],
+    "159806": ["电池", "锂", "汽车", "新能源"],
+    "159858": ["创新药", "医药", "医保"],
 }
 
 # 2026 年 FOMC 会议（来源：联邦储备官网 2024-08-09 发布的 2025/2026 会议安排）
@@ -650,6 +666,23 @@ def news_analysis(items):
     return rows
 
 
+def theme_sentiment(code, news_rows):
+    """按代码主题聚合快讯情绪：利多/利空/中性；无命中返回 None。"""
+    theme = CODE_THEMES.get(code, [])
+    if not theme:
+        return None, []
+    items = [n for n in news_rows if any(k in theme for k in n["hits"])]
+    if not items:
+        return None, []
+    score = sum({"利多": 1, "利空": -1, "多空交织": 0, "中性": 0}
+                .get(n["impact"], 0) for n in items)
+    if score > 0:
+        return "利多", items
+    if score < 0:
+        return "利空", items
+    return "中性", items
+
+
 # ---------------------------------------------------------------- 指数/板块
 
 def index_summary():
@@ -851,6 +884,8 @@ def one_line(r, op):
     signal = op.get("signal", "")
     if abs(r["pct"]) >= 2:
         signal += " ⚠异动"
+    if op.get("suspended"):
+        signal += " ⚠消息面主导"
     parts = [f"[{t0}] {r['code']} {r['name']} {fmt_price(r['price'])} {pct_str(r['pct'])}",
              f"区间:{fmt_price(r['low'])}-{fmt_price(r['high'])}",
              f"均价:{fmt_price(r.get('vwap'))}",
@@ -888,6 +923,11 @@ def build_report(records, holdings, news_rows, idxs, boards_up, boards_down,
             lines.append(f"- [{n['source']} {n['time']}] **{n['impact']}**（{'/'.join(n['hits'][:5])}）{text}")
     else:
         lines.append("（无命中关键词的快讯，或快讯数据缺失）")
+    sent_lines = [f"{r['code']} {r['name']}：{r['news_sentiment']}（{r['news_items']}条）"
+                  for r in records.values() if r.get("news_sentiment")]
+    if sent_lines:
+        lines.append("")
+        lines.append("主题情绪：" + "；".join(sent_lines))
     lines.append("")
     lines.append("## 二、隔夜外盘\n")
     if globals_rows:
@@ -1124,6 +1164,17 @@ def main():
         records[code] = r
 
     news_rows = news_analysis(load_news())
+    for code, r in records.items():
+        sent, items = theme_sentiment(code, news_rows)
+        r["news_sentiment"] = sent
+        r["news_items"] = len(items)
+        if sent == "利空" and r["op"]["action"] in ("买入", "加仓"):
+            r["op"]["action"] = "观望"
+            r["op"]["order_type"] = "观望（消息面利空主导，暂停买入）"
+            r["op"]["suspended"] = True
+            r["op"]["notes"].append("消息面利空与买入信号背离：以消息面为主导，不追不接，待利空消化后再评估")
+        elif sent == "利多" and r["op"]["action"] in ("卖出", "减仓"):
+            r["op"]["notes"].append("消息面利多与减仓信号并存：减仓可延后观察，但止损纪律不变")
     idxs = index_summary()
     boards_up, boards_down = board_summary()
     globals_rows = global_summary()
