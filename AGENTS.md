@@ -4,14 +4,14 @@
 
 A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断交给 AI**。完整规则见 `PROMPT_full.md`（含标的全集、当前持仓、消息面与操作纪律）；`PROMPT.md` 为 v2.0 规则原始存档。
 
-## 常用命令
+## 常用命令（跨平台，仅需 Python 3）
 
-- 采集：`./fetch_etf_data.sh`（实时三源、分时、日K、三源快讯、指数、板块、外盘、ETF 份额/重仓 → `.workwork/data/`）
-- 晨间预案：`./morning_plan.sh`（只采集数据，提示交给 AI 分析）
-- 盘中监控：`./monitor.sh`（`--once` 单轮 / `--until-close` 盘中会话，仅采集）
-- 自动化（仅 macOS）：`automations/install.sh`（launchd：工作日 08:40 晨间 + 09:25 盘中会话）、`automations/uninstall.sh`
+- 采集：`python3 fetch_etf_data.py`（实时三源、分时、日K、三源快讯、指数、板块、外盘、ETF 份额/重仓 → `.workwork/data/`）
+- 晨间预案：`python3 morning_plan.py`（只采集数据，提示交给 AI 分析）
+- 盘中监控：`python3 monitor.py`（`--once` 单轮 / `--until-close` 盘中会话，仅采集）
+- 自动化：`python3 automations/install.py`（macOS→launchd、Linux→crontab、Windows→任务计划程序）、`python3 automations/uninstall.py`
 
-所有脚本从任意目录可调用（内部自动切换到项目根目录）。
+所有脚本均用 Python 标准库实现，可在任意目录、任意平台（Windows/macOS/Linux）运行。
 
 ## 数据与配置
 
@@ -21,6 +21,6 @@ A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断�
 
 ## 约束
 
-- 输出全部使用中文；脚本面向 macOS/Linux（bash + curl + iconv + python3），无第三方 Python 依赖。
+- 输出全部使用中文；仅依赖 Python 3 标准库（urllib），无第三方包。
 - 只采集数据与生成建议，禁止自动下单；分析结论由 AI 结合消息面生成、人工复核执行。
 - 依赖免费公开行情接口，可能限流；采集脚本内置多级降级与重试。
