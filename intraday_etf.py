@@ -41,7 +41,11 @@ NEWS_KEYWORDS = [
     "黄金", "金价", "美联储", "美元", "CPI", "通胀", "加息", "降息",
     "半导体", "芯片", "创新药", "医药", "通信", "AI", "算力", "稀土",
     "有色", "锂", "电池", "港股", "红利", "A股", "关税", "大盘",
-    "证监会", "央行",
+    "证监会", "央行", "汇率", "人民币", "美债", "收益率", "避险",
+    "原油", "石油", "降准", "LPR", "PMI", "社融", "MLF", "财政",
+    "出口", "地产", "光伏", "储能", "机器人", "军工", "消费", "白酒",
+    "涨价", "减产", "库存", "外资", "主力资金", "龙虎榜", "业绩",
+    "回购", "增持", "减持", "美股", "纳指", "标普", "道指", "恒指",
 ]
 
 NEWS_LIDUO = [
@@ -556,21 +560,67 @@ def _signal_t1(r, holding, price, high, low, vwap, pct, pos,
 
 # ---------------------------------------------------------------- 消息面
 
+def _norm_title(t):
+    return re.sub(r"\W", "", t)[:24]
+
+
 def load_news():
+    """三源快讯：新浪 7x24 + 东方财富 7x24 + 同花顺，去重后取最新 30 条。"""
+    bucket = {"新浪": [], "东财": [], "同花顺": []}
     raw = load_json(os.path.join(DATA_DIR, "news.json"))
-    if not raw:
-        return []
-    feed = raw.get("result", {}).get("data", {}).get("feed", {}).get("list", [])
-    items = []
-    for it in feed:
-        text = re.sub(r"<[^>]+>", "", it.get("rich_text", ""))
-        items.append({
-            "time": it.get("create_time", ""),
-            "text": text,
-            "tags": [t.get("name", "") for t in it.get("tag", [])],
-            "docurl": it.get("docurl", ""),
-        })
-    return items
+    if raw:
+        feed = raw.get("result", {}).get("data", {}).get("feed", {}).get("list", [])
+        for it in feed:
+            text = re.sub(r"<[^>]+>", "", it.get("rich_text", ""))
+            if not text:
+                continue
+            bucket["新浪"].append({
+                "source": "新浪", "time": it.get("create_time", ""), "text": text,
+                "tags": [t.get("name", "") for t in it.get("tag", [])],
+                "docurl": it.get("docurl", ""),
+            })
+    em_text = read_text(os.path.join(DATA_DIR, "news_eastmoney.txt"))
+    m = re.search(r"ajaxResult\s*=\s*(\{.*\})\s*;?", em_text, re.S)
+    if m:
+        try:
+            for it in json.loads(m.group(1)).get("LivesList", []):
+                title, digest = it.get("title", ""), it.get("digest", "")
+                body = f"【{title}】{digest}".strip("【】 ")
+                if body:
+                    bucket["东财"].append({
+                        "source": "东财", "time": it.get("showtime", ""), "text": body,
+                        "tags": [], "docurl": it.get("url_w", ""),
+                    })
+        except (ValueError, json.JSONDecodeError):
+            pass
+    raw = load_json(os.path.join(DATA_DIR, "news_10jqka.json"))
+    if raw and raw.get("data"):
+        for it in raw["data"].get("list", []):
+            title, digest = it.get("title", ""), it.get("digest", "")
+            body = f"【{title}】{digest}".strip("【】 ")
+            if not body:
+                continue
+            ts = it.get("ctime")
+            t = datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+            bucket["同花顺"].append({
+                "source": "同花顺", "time": t, "text": body,
+                "tags": [x.get("name", "") for x in it.get("tags", [])],
+                "docurl": it.get("url", ""),
+            })
+    # 三源各取最新 12 条再合并去重，避免单一信源挤掉其他来源
+    pooled = []
+    for src in bucket.values():
+        pooled += sorted(src, key=lambda x: x["time"], reverse=True)[:12]
+    seen, out = set(), []
+    for it in sorted(pooled, key=lambda x: x["time"], reverse=True):
+        key = _norm_title(it["text"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(it)
+        if len(out) >= 30:
+            break
+    return out
 
 
 def news_analysis(items):
@@ -645,6 +695,39 @@ def board_summary():
     return load("boards_up.json", "up"), load("boards_down.json", "down")
 
 
+def global_summary():
+    """隔夜外盘：美股/港股指数（腾讯）+ 美股期货/黄金/原油/汇率（新浪）。"""
+    out = []
+    text = read_text(os.path.join(DATA_DIR, "global_realtime.txt"))
+    idx = parse_tencent(text)
+    labels = {".DJI": "道琼斯", ".IXIC": "纳斯达克", ".INX": "标普500",
+              "HSI": "恒生指数", "HSCEI": "国企指数"}
+    for code, label in labels.items():
+        r = idx.get(code)
+        if not r:
+            continue
+        out.append({"name": r.get("name") or label, "price": r["price"],
+                    "pct": r["pct"], "ts": str(r.get("ts", "")), "kind": "指数"})
+    stext = read_text(os.path.join(DATA_DIR, "global_sina.txt"))
+    for line in stext.splitlines():
+        m = re.match(r'var hq_str_(\w+)="([^"]*)"', line.strip())
+        if not m:
+            continue
+        f = m.group(2).split(",")
+        key = m.group(1)
+        try:
+            if key.startswith("hf_") and len(f) >= 14 and f[0]:
+                out.append({"name": f[13], "price": float(f[0]), "pct": None,
+                            "ts": f[6], "kind": "期货"})
+            elif key == "fx_susdcny" and len(f) >= 10 and f[3]:
+                out.append({"name": f[9] if len(f) > 9 else "美元兑人民币",
+                            "price": float(f[3]), "pct": None,
+                            "ts": f[0], "kind": "汇率"})
+        except ValueError:
+            continue
+    return out
+
+
 # ---------------------------------------------------------------- 日历提醒
 
 def second_weekday(y, m, weekday):
@@ -670,6 +753,23 @@ def calendar_reminders(today):
         days = (ds - today).days
         if 0 <= days <= 3:
             notes.append(f"⚠ FOMC 会议 {start}~{end}，前3天每日提醒（剩{days}天）")
+    # LPR：每月 20 日 9:00（遇周末以官方公布为准，此处仅按日期提醒）
+    lpr = date(today.year, today.month, 20)
+    if lpr == today:
+        notes.append("今日 9:00 LPR 报价")
+    if (lpr - today).days == 1:
+        notes.append(f"明日 9:00 LPR 报价（{lpr}）")
+    # PMI：月末最后一个工作日 9:30
+    if today.month == 12:
+        pmi = date(today.year + 1, 1, 1) - timedelta(days=1)
+    else:
+        pmi = date(today.year, today.month + 1, 1) - timedelta(days=1)
+    while pmi.weekday() >= 5:
+        pmi -= timedelta(days=1)
+    if pmi == today:
+        notes.append("今日 9:30 制造业 PMI")
+    if (pmi - today).days == 1:
+        notes.append(f"明日 9:30 制造业 PMI（{pmi}）")
     return notes
 
 
@@ -743,23 +843,32 @@ def one_line(r, op):
 
 
 def build_report(records, holdings, news_rows, idxs, boards_up, boards_down,
-                 cal_notes, data_time, fetch_at):
+                 globals_rows, cal_notes, data_time, fetch_at):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"# A股ETF交易辅助 v2.0 分析（{now}）\n",
              f"> 数据时间：{data_time}（采集于 {fetch_at}）\n",
-             "## 一、消息面（最近30条快讯·关键词过滤）\n"]
+             "## 一、消息面（三源快讯·最近30条·关键词过滤）\n"]
     if news_rows:
         for n in news_rows[:8]:
             text = n["text"][:90] + ("…" if len(n["text"]) > 90 else "")
-            lines.append(f"- [{n['time']}] **{n['impact']}**（{'/'.join(n['hits'][:5])}）{text}")
+            lines.append(f"- [{n['source']} {n['time']}] **{n['impact']}**（{'/'.join(n['hits'][:5])}）{text}")
     else:
         lines.append("（无命中关键词的快讯，或快讯数据缺失）")
     lines.append("")
-    lines.append("## 二、逐只信号（一行模板）\n")
+    lines.append("## 二、隔夜外盘\n")
+    if globals_rows:
+        for g in globals_rows:
+            pct = pct_str(g["pct"]) if g.get("pct") is not None else ""
+            price = f"{g['price']:.4f}" if g.get("kind") == "汇率" else f"{g['price']:.2f}"
+            lines.append(f"- {g['name']} {price} {pct}（{g.get('ts', '')}）")
+    else:
+        lines.append("（外盘数据缺失）")
+    lines.append("")
+    lines.append("## 三、逐只信号（一行模板）\n")
     for r in records.values():
         lines.append(f"```\n{one_line(r, r['op'])}\n```")
     lines.append("")
-    lines.append("## 三、持仓跟踪\n")
+    lines.append("## 四、持仓跟踪\n")
     lines.append("| 账号 | 代码 | 名称 | 数量(份) | 成本 | 现价 | 当前浮盈% | 处理线 | 状态 |")
     lines.append("|---|---|---|---|---|---|---|---|---|")
     agg = {}
@@ -798,24 +907,28 @@ def build_report(records, holdings, news_rows, idxs, boards_up, boards_down,
         lines.append("")
         lines.append("汇总：" + "；".join(parts))
     lines.append("")
-    lines.append("## 四、大盘与板块\n")
+    lines.append("## 五、大盘与板块\n")
     for i in idxs:
         amt = f"{i['amount']/1e8:.0f}亿" if i.get("amount") else "—"
         chg = f"，较昨{pct_str(i['amount_chg']*100,1)}" if i.get("amount_chg") is not None else ""
         lines.append(f"- {i['name']} {i['price']:.2f}（{pct_str(i['pct'])}）成交 {amt}{chg}")
     if boards_up:
-        lines.append("- 最强板块：" + "、".join(f"{b['name']}{pct_str(b['pct'])}" for b in boards_up))
+        lines.append("- 最强板块：" + "、".join(
+            f"{b['name']}{pct_str(b['pct'])}" + (f"（主力{b['inflow']/1e8:+.1f}亿）" if b.get("inflow") else "")
+            for b in boards_up))
     if boards_down:
-        lines.append("- 最弱板块：" + "、".join(f"{b['name']}{pct_str(b['pct'])}" for b in boards_down))
+        lines.append("- 最弱板块：" + "、".join(
+            f"{b['name']}{pct_str(b['pct'])}" + (f"（主力{b['inflow']/1e8:+.1f}亿）" if b.get("inflow") else "")
+            for b in boards_down))
     lines.append("")
-    lines.append("## 五、明日关注与日历\n")
+    lines.append("## 六、明日关注与日历\n")
     if cal_notes:
         for n in cal_notes:
             lines.append(f"- {n}")
     else:
         lines.append("- 暂无临近日历事件；按晨间预案（8:40）复核隔夜消息与外盘。")
     lines.append("")
-    lines.append("## 六、自检清单\n")
+    lines.append("## 七、自检清单\n")
     anomalies = [r["code"] for r in records.values() if abs(r["pct"]) >= 2]
     checklist = [
         ("数据时间标注（精确到分钟）", bool(data_time)),
@@ -960,10 +1073,11 @@ def main():
     news_rows = news_analysis(load_news())
     idxs = index_summary()
     boards_up, boards_down = board_summary()
+    globals_rows = global_summary()
     cal_notes = calendar_reminders(datetime.now().date())
 
     report = build_report(records, holdings, news_rows, idxs, boards_up,
-                          boards_down, cal_notes, data_time, fetch_at)
+                          boards_down, globals_rows, cal_notes, data_time, fetch_at)
     date_tag = datetime.now().strftime("%Y%m%d")
     out_md = os.path.join(REPORT_DIR, f"intraday_{date_tag}.md")
     out_latest = os.path.join(REPORT_DIR, "intraday_latest.md")
@@ -979,7 +1093,12 @@ def main():
     print(f"数据时间：{data_time or '—'}（采集于 {fetch_at}）")
     print("消息面：")
     for n in news_rows[:5]:
-        print(f"  [{n['time']}] {n['impact']}（{'/'.join(n['hits'][:4])}）{n['text'][:60]}")
+        print(f"  [{n['source']} {n['time']}] {n['impact']}（{'/'.join(n['hits'][:4])}）{n['text'][:60]}")
+    print("隔夜外盘：")
+    for g in globals_rows:
+        pct = pct_str(g["pct"]) if g.get("pct") is not None else ""
+        price = f"{g['price']:.4f}" if g.get("kind") == "汇率" else f"{g['price']:.2f}"
+        print(f"  {g['name']} {price} {pct}（{g.get('ts','')}）")
     print("逐只信号：")
     for r in records.values():
         print(one_line(r, r["op"]))

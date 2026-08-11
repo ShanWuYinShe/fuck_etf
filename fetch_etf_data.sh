@@ -92,6 +92,14 @@ curl -sS --max-time 15 \
   "https://zhibo.sina.com.cn/api/zhibo/feed?page=1&page_size=30&zhibo_id=152" \
   -o "$DATA_DIR/news.json" || true
 
+# ---- 4.1 财经快讯补充源：东方财富 7x24 + 同花顺 ----
+curl -sS --max-time 15 -A 'Mozilla/5.0' \
+  "https://newsapi.eastmoney.com/kuaixun/v1/getlist_102_ajaxResult_30_1_.html" \
+  -o "$DATA_DIR/news_eastmoney.txt" || true
+curl -sS --max-time 15 -A 'Mozilla/5.0' \
+  "https://news.10jqka.com.cn/tapp/news/push/stock/?page=1&pagesize=30" \
+  -o "$DATA_DIR/news_10jqka.json" || true
+
 # ---- 5. 大盘指数：上证/创业板实时 + 近 3 日日K（含成交额，用于对比）----
 curl -sS --max-time 15 "https://qt.gtimg.cn/q=sh000001,sz399006" \
   | iconv -f GBK -t UTF-8 > "$DATA_DIR/index_realtime.txt" || true
@@ -116,6 +124,13 @@ fetch_save boards_down.json \
   "https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=10&po=0&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2+f:!50&fields=f3,f12,f14,f62" \
   || true
 
+# ---- 6.1 外盘与汇率：美股/港股指数（腾讯）+ 美股期货/黄金/原油/汇率（新浪）----
+curl -sS --max-time 15 "https://qt.gtimg.cn/q=usDJI,usIXIC,usINX,hkHSI,hkHSCEI" \
+  | iconv -f GBK -t UTF-8 > "$DATA_DIR/global_realtime.txt" || true
+curl -sS --max-time 15 -H 'Referer: https://finance.sina.com.cn' \
+  "https://hq.sinajs.cn/list=hf_GC,hf_CL,hf_ES,hf_NQ,hf_YM,fx_susdcny" \
+  | iconv -f GBK -t UTF-8 > "$DATA_DIR/global_sina.txt" || true
+
 # ---- 7. 逐只：分时（VWAP）+ 日/周/月线 ----
 for c in "${CODES[@]}"; do
   mk="$(market_of "$c")"
@@ -136,4 +151,4 @@ for c in "${CODES[@]}"; do
   done
 done
 
-echo "完成：${#CODES[@]} 只 ETF 的实时三源 + 分时 + 日/周/月线 + 快讯 + 指数 + 板块已保存到 $DATA_DIR/"
+echo "完成：${#CODES[@]} 只 ETF 的实时三源 + 分时 + 日/周/月线 + 三源快讯 + 指数 + 板块 + 外盘已保存到 $DATA_DIR/"
