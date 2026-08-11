@@ -1,34 +1,28 @@
-# ETF 分析流程（v2.0 交易辅助 + 2 周波段 / 长线）
+# ETF 交易辅助（以 AI 分析为核心）
 
-本目录包含两套可复用流程：
+核心思路：**脚本只负责采集数据，分析和决策交给 AI**。把 [PROMPT_full.md](PROMPT_full.md)（含 10 只标的全集、当前持仓、消息面规则、操作纪律）作为系统提示词交给 AI，AI 结合行情与消息面给出操作建议。脚本无法也不应该替代 AI 的消息面判断。
 
-1. **v2.0 交易辅助（PROMPT.md 规范）**：盘中/收盘实时分析，输出 T+0/T+1 模式判定、VWAP、操作指令（同花顺下单）、消息面、持仓跟踪与大盘板块总结。
-2. **2 周波段 / 长线分析**：输入代码列表 → 拉取日/周/月线 → 计算指标 → 合成**2 周波段**/长线信号 → 输出报告。
-
-## 快速使用
+## 使用流程
 
 ```bash
-# 1. 拉取数据（需联网；etf_list 中每行一个 6 位代码）
-./fetch_etf_data.sh          # v2.0 采集：实时三源 + 分时(VWAP) + 日/周/月线 + 快讯 + 指数 + 板块
+# 1. 采集数据（需联网；etf_list 中每行一个 6 位代码）
+./fetch_etf_data.sh          # 实时三源 + 分时(VWAP) + 日/周/月线 + 三源快讯 + 指数 + 板块 + 外盘 + 份额/重仓
 
-# 2. v2.0 盘中/复盘分析（输出到 .workwork/report/intraday_latest.md）
-python3 intraday_etf.py
+# 2.（可选）生成结构化数据整理，供 AI 快速读取
+python3 intraday_etf.py      # 输出 .workwork/report/intraday_latest.md / intraday.json
 
-# 3. 生成 2周波段/长线报告（输出到 .workwork/report/，含 Markdown / HTML / JSON）
-python3 analyze_etf.py
-
-# 也可以只分析指定代码
-python3 analyze_etf.py --codes 159831,515050
-python3 intraday_etf.py --codes 159831,159691
+# 3. 让 AI 分析：把 PROMPT_full.md 与上述数据一起交给 AI，或直接问 AI“分析”
 ```
+
+> 旧版“2 周波段/长线”脚本（`analyze_etf.py` / `recommend_etf.py` / `band_plan.py` / `run_all.sh`）仍保留可用，但不是 AI 分析流程的必要部分。
 
 ### 在新电脑上使用（macOS / Linux）
 
-1. 准备：zsh/bash、python3、curl、iconv（macOS 自带；Linux 需另装 iconv）。
+1. 准备：bash（macOS/Linux 均自带，zsh 环境也能直接运行）、python3、curl、iconv（macOS 自带；Linux 需另装 iconv）。
 2. 拷贝或克隆整个项目目录到任意位置。
 3. 首次配置：`mkdir -p .workwork && cp holdings.example.json .workwork/holdings.json`，再按你的实际持仓修改成本/数量/处理线；`etf_list` 按需增删标的。
 4. 采集：`./fetch_etf_data.sh`；分析：`python3 intraday_etf.py`；晨间预案：`./morning_plan.sh`。
-5. 自动化：`./automations/install.sh`（安装时自动把脚本路径替换为当前电脑的实际路径）。
+5. 自动化（仅 macOS）：`./automations/install.sh` 安装 launchd 任务（工作日 08:40 晨间预案 + 09:25 盘中采集会话），脚本路径自动替换为当前电脑实际路径。
 
 所有脚本都可在任意目录调用（内部会自动定位到项目根目录）；无需安装任何 Python 第三方包。
 
@@ -65,6 +59,8 @@ python3 recommend_etf.py --top 15         # 推荐 15 只
 ./automations/install.sh    # 安装：工作日 08:40 晨间预案 + 09:25 盘中监控会话（15:05 自动结束）
 ./automations/uninstall.sh  # 卸载
 ```
+
+日志在 `~/Library/Logs/etf-*.log`。
 
 日志位于 `~/Library/Logs/etf-morning-plan.log` 与 `~/Library/Logs/etf-market-monitor.log`。
 

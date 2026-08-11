@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # 拉取 ETF 行情数据（v2.0 采集规范），输出到 .workwork/data/
 #   1) 实时行情三源：腾讯（主）/ 新浪（备）/ 东方财富（校验）
 #   2) 分时（VWAP）与日/周/月线（腾讯）
@@ -17,7 +17,7 @@ CODES=("$@")
 if (( ${#CODES[@]} == 0 )); then
   while IFS= read -r line; do
     if [[ "$line" =~ ([0-9]{6}) ]]; then
-      CODES+=("$match[1]")
+      CODES+=("${BASH_REMATCH[1]}")
     fi
   done < etf_list
 fi
@@ -95,8 +95,8 @@ fetch_em_batch() {
 if (( ${#CODES[@]} <= 5 )); then
   fetch_em_batch realtime_eastmoney.json "${CODES[@]}"
 else
-  fetch_em_batch realtime_eastmoney.json ${CODES[1,5]}
-  fetch_em_batch realtime_eastmoney_2.json ${CODES[6,-1]}
+  fetch_em_batch realtime_eastmoney.json "${CODES[@]:0:5}"
+  fetch_em_batch realtime_eastmoney_2.json "${CODES[@]:5}"
 fi
 
 # ---- 4. 财经快讯（新浪 7x24，最近 30 条）----

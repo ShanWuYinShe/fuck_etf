@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # v2.0 运行纪律：盘中每 2 分钟执行一轮数据采集（仅采集，不分析）
 #   ./monitor.sh        # 盘中自动循环，午休与收盘后暂停
 #   ./monitor.sh --once # 只采集一轮后退出

@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-A股ETF交易辅助：v2.0 盘中/复盘分析（实时行情、分时 VWAP、T+0/T+1 模式判定、操作指令、消息面、持仓跟踪）+ 2 周波段/长线分析。完整规则见 `PROMPT.md` / `PROMPT_full.md`。
+A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断交给 AI**。完整规则见 `PROMPT_full.md`（含标的全集、当前持仓、消息面与操作纪律）。旧版 2 周波段/长线脚本仍保留可用。
 
 ## 常用命令
 
@@ -10,7 +10,7 @@ A股ETF交易辅助：v2.0 盘中/复盘分析（实时行情、分时 VWAP、T+
 - v2.0 分析：`python3 intraday_etf.py`（输出 `.workwork/report/intraday_latest.md` 与 `intraday.json`）
 - 旧版波段流程：`python3 analyze_etf.py` / `recommend_etf.py` / `band_plan.py`；一键 `./run_all.sh`
 - 晨间预案：`./morning_plan.sh`；盘中监控：`./monitor.sh`（`--once` 单轮 / `--until-close` 盘中会话）
-- 自动化：`automations/install.sh`（launchd：工作日 08:40 晨间 + 09:25 盘中会话）、`automations/uninstall.sh`
+- 自动化（仅 macOS）：`automations/install.sh`（launchd：工作日 08:40 晨间 + 09:25 盘中会话）、`automations/uninstall.sh`
 
 所有脚本从任意目录可调用（内部自动切换到项目根目录）。
 
@@ -22,6 +22,6 @@ A股ETF交易辅助：v2.0 盘中/复盘分析（实时行情、分时 VWAP、T+
 
 ## 约束
 
-- 输出全部使用中文；脚本面向 macOS/Linux（zsh/bash + curl + iconv + python3），无第三方 Python 依赖。
+- 输出全部使用中文；脚本面向 macOS/Linux（bash + curl + iconv + python3），无第三方 Python 依赖。
 - 只生成分析与下单建议，禁止自动下单；信号由人工复核执行。
 - 依赖免费公开行情接口，可能限流；采集脚本内置多级降级与重试。

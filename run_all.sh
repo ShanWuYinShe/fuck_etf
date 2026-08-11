@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # 一键完成：拉数据（v2.0 采集）→ 分析已记录 ETF → 推荐新标的 → 生成波段清单 → v2.0 盘中/复盘分析
 set -e
 set -o pipefail
