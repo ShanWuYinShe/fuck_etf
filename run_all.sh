@@ -3,6 +3,8 @@
 set -e
 set -o pipefail
 
+cd "$(dirname "$0")"
+
 echo "== 1/5 拉取行情数据（实时三源+分时+快讯+指数+板块） =="
 ./fetch_etf_data.sh
 

@@ -30,6 +30,9 @@ import re
 from datetime import datetime, timedelta
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
 # ---------------------------------------------------------------- 数据读取
 
 def market_of(code: str) -> str:
@@ -601,14 +604,14 @@ def build_html(results, gen_time) -> str:
 def main():
     ap = argparse.ArgumentParser(description="ETF 技术面分析工具")
     ap.add_argument("--codes", help="逗号分隔的 ETF 代码，默认读取 etf_list")
-    ap.add_argument("--data-dir", default=".workwork/data", help="行情 JSON 目录")
-    ap.add_argument("--out-dir", default=".workwork/report", help="报告输出目录")
+    ap.add_argument("--data-dir", default=os.path.join(BASE_DIR, ".workwork", "data"), help="行情 JSON 目录")
+    ap.add_argument("--out-dir", default=os.path.join(BASE_DIR, ".workwork", "report"), help="报告输出目录")
     args = ap.parse_args()
 
     if args.codes:
         codes = [c.strip() for c in args.codes.split(",") if c.strip()]
-    elif os.path.exists("etf_list"):
-        codes = read_etf_list("etf_list")
+    elif os.path.exists(os.path.join(BASE_DIR, "etf_list")):
+        codes = read_etf_list(os.path.join(BASE_DIR, "etf_list"))
     else:
         raise SystemExit("未找到 etf_list，请用 --codes 指定代码")
 

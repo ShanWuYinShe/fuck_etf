@@ -10,7 +10,8 @@ import os
 from datetime import datetime
 
 
-REPORT_DIR = ".workwork/report"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+REPORT_DIR = os.path.join(BASE_DIR, ".workwork", "report")
 
 
 def fmt(x, nd=3):

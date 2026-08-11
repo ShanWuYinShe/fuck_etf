@@ -1,0 +1,47 @@
+{
+  "accounts": [
+    {
+      "name": "账号1",
+      "positions": [
+        {
+          "code": "159516",
+          "name": "半导体设备",
+          "cost": 0.752,
+          "shares": 20000,
+          "stop": 0.735,
+          "reduce_low": 0.75,
+          "reduce_high": 0.76,
+          "add": 0.72,
+          "target": null
+        },
+        {
+          "code": "159858",
+          "name": "创新药",
+          "cost": 0.749,
+          "shares": 46700,
+          "stop": 0.715,
+          "reduce_low": 0.75,
+          "reduce_high": 0.76,
+          "add": 0.72,
+          "target": 0.764
+        }
+      ]
+    },
+    {
+      "name": "账号2",
+      "positions": [
+        {
+          "code": "159516",
+          "name": "半导体设备",
+          "cost": 0.746,
+          "shares": 30000,
+          "stop": 0.735,
+          "reduce_low": 0.75,
+          "reduce_high": 0.76,
+          "add": 0.72,
+          "target": null
+        }
+      ]
+    }
+  ]
+}

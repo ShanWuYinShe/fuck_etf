@@ -5,12 +5,15 @@
 set -e
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SRC")"
 LA="$HOME/Library/LaunchAgents"
 mkdir -p "$LA"
 
 cp "$SRC/com.etf.morning-plan.plist" "$SRC/com.etf.market-monitor.plist" "$LA/"
 
 for p in "$LA"/com.etf.*.plist; do
+  # 用当前项目目录与用户日志目录替换占位符（支持任意电脑/路径）
+  sed -i '' "s|__PROJECT_DIR__|$PROJECT_DIR|g; s|__LOG_DIR__|$HOME/Library/Logs|g" "$p"
   plutil -lint "$p" >/dev/null
   label="$(/usr/libexec/PlistBuddy -c 'Print :Label' "$p")"
   launchctl bootout "gui/$(id -u)" "$p" 2>/dev/null || true

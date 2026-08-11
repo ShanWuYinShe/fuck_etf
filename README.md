@@ -22,6 +22,16 @@ python3 analyze_etf.py --codes 159831,515050
 python3 intraday_etf.py --codes 159831,159691
 ```
 
+### 在新电脑上使用（macOS / Linux）
+
+1. 准备：zsh/bash、python3、curl、iconv（macOS 自带；Linux 需另装 iconv）。
+2. 拷贝或克隆整个项目目录到任意位置。
+3. 首次配置：`mkdir -p .workwork && cp holdings.example.json .workwork/holdings.json`，再按你的实际持仓修改成本/数量/处理线；`etf_list` 按需增删标的。
+4. 采集：`./fetch_etf_data.sh`；分析：`python3 intraday_etf.py`；晨间预案：`./morning_plan.sh`。
+5. 自动化：`./automations/install.sh`（安装时自动把脚本路径替换为当前电脑的实际路径）。
+
+所有脚本都可在任意目录调用（内部会自动定位到项目根目录）；无需安装任何 Python 第三方包。
+
 ### 推荐强势候选
 
 ```bash

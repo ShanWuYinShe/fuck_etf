@@ -5,6 +5,8 @@
 set -e
 set -o pipefail
 
+cd "$(dirname "$0")"
+
 if [[ "$1" == "--once" ]]; then
   ./fetch_etf_data.sh
   exit 0

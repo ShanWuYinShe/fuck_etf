@@ -7,7 +7,7 @@
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/zsh</string>
-		<string>/Users/liyou/work/etf_stock_analyzer/morning_plan.sh</string>
+		<string>__PROJECT_DIR__/morning_plan.sh</string>
 	</array>
 	<key>StartCalendarInterval</key>
 	<array>
@@ -53,8 +53,8 @@
 		</dict>
 	</array>
 	<key>StandardOutPath</key>
-	<string>/Users/liyou/Library/Logs/etf-morning-plan.log</string>
+	<string>__LOG_DIR__/etf-morning-plan.log</string>
 	<key>StandardErrorPath</key>
-	<string>/Users/liyou/Library/Logs/etf-morning-plan.log</string>
+	<string>__LOG_DIR__/etf-morning-plan.log</string>
 </dict>
 </plist>

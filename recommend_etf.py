@@ -31,6 +31,9 @@ import time
 import analyze_etf as ae
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
 # ---------------------------------------------------------------- 数据获取
 
 EM_LIST_HOSTS = (
@@ -368,10 +371,10 @@ def read_codes(path: str) -> set:
 def main():
     ap = argparse.ArgumentParser(description="短线强势 ETF 推荐")
     ap.add_argument("--top", type=int, default=10, help="推荐数量（默认 10）")
-    ap.add_argument("--exclude-list", default="etf_list", help="需要排除的代码文件（默认 etf_list）")
+    ap.add_argument("--exclude-list", default=os.path.join(BASE_DIR, "etf_list"), help="需要排除的代码文件（默认 etf_list）")
     ap.add_argument("--candidate-count", type=int, default=40, help="实时快筛后精算的候选数量（默认 40）")
-    ap.add_argument("--data-dir", default=".workwork/data/reco", help="候选日线缓存目录")
-    ap.add_argument("--out-dir", default=".workwork/report", help="报告输出目录")
+    ap.add_argument("--data-dir", default=os.path.join(BASE_DIR, ".workwork", "data", "reco"), help="候选日线缓存目录")
+    ap.add_argument("--out-dir", default=os.path.join(BASE_DIR, ".workwork", "report"), help="报告输出目录")
     args = ap.parse_args()
 
     exclude = read_codes(args.exclude_list)

@@ -4,6 +4,8 @@
 set -e
 set -o pipefail
 
+cd "$(dirname "$0")"
+
 echo "== 1/2 采集最新数据 =="
 ./fetch_etf_data.sh
 

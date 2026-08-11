@@ -10,6 +10,8 @@
 set -e
 set -o pipefail
 
+cd "$(dirname "$0")"
+
 DATA_DIR=".workwork/data"
 CODES=("$@")
 if (( ${#CODES[@]} == 0 )); then

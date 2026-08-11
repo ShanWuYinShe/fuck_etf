@@ -26,9 +26,10 @@ import statistics
 from datetime import date, datetime, timedelta
 
 
-DATA_DIR = ".workwork/data"
-REPORT_DIR = ".workwork/report"
-HOLDINGS_PATH = ".workwork/holdings.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, ".workwork", "data")
+REPORT_DIR = os.path.join(BASE_DIR, ".workwork", "report")
+HOLDINGS_PATH = os.path.join(BASE_DIR, ".workwork", "holdings.json")
 
 T0_KEYWORDS = [
     "黄金", "金ETF", "白银", "豆粕", "原油", "油气",
@@ -1094,7 +1095,7 @@ def main():
         codes = [c.strip() for c in args.codes.split(",") if c.strip()]
     else:
         codes = []
-        for line in read_text("etf_list").splitlines():
+        for line in read_text(os.path.join(BASE_DIR, "etf_list")).splitlines():
             m = re.search(r"\d{6}", line)
             if m:
                 codes.append(m.group())
