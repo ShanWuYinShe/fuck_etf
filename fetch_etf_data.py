@@ -5,13 +5,13 @@
 
 仅依赖 Python 标准库（urllib + concurrent.futures），Windows / macOS / Linux 通用，无需 curl / iconv / bash。
 输出到 <项目根>/.workwork/data/：
-    实时行情三源（腾讯主 / 新浪备 / 东财校验）、分时、日/周/月线、
+    实时行情三源（腾讯主 / 新浪备 / 东财校验）、折溢价（IOPV）、分时、日/周/月线、
     三源快讯（新浪 / 东财 / 同花顺）、大盘指数、板块榜、外盘、ETF 份额与季报重仓。
 逐只 ETF 数据并行采集；每轮写 _manifest.json 记录各文件采集状态（ok/stale/fail），供 AI 识别延迟数据。
 
 用法：
     python3 fetch_etf_data.py              # 读取 etf_list
-    python3 fetch_etf_data.py 159831 515050
+    python3 fetch_etf_data.py 512400 159992
 """
 
 import datetime
@@ -104,6 +104,30 @@ def fetch_global(codes):
     fetch_save("realtime_sina.txt",
                [f"https://hq.sinajs.cn/list={qt_codes}"],
                headers={"Referer": "https://finance.sina.com.cn"}, encoding="gbk")
+
+    # 2.5 折溢价（IOPV）：解析腾讯字段 [78]（盘中实时参考净值），跨境/商品类溢价风险提示用
+    try:
+        with open(os.path.join(DATA_DIR, "realtime.txt"), encoding="utf-8") as f:
+            qt_raw = f.read()
+        iopv_rows = []
+        for line in qt_raw.strip().split(";"):
+            line = line.strip()
+            if "=" not in line:
+                continue
+            parts = line.split("~")
+            if len(parts) > 78 and parts[2] and parts[3] and parts[78]:
+                try:
+                    price, iopv = float(parts[3]), float(parts[78])
+                except ValueError:
+                    continue
+                iopv_rows.append({"code": parts[2], "name": parts[1], "price": price,
+                                  "iopv": iopv, "premium_pct": round((price / iopv - 1) * 100, 3)})
+        if iopv_rows:
+            with open(os.path.join(DATA_DIR, "realtime_iopv.json"), "w", encoding="utf-8") as f:
+                f.write(json.dumps(iopv_rows, ensure_ascii=False))
+            _record("realtime_iopv.json", "ok")
+    except Exception as e:
+        print("IOPV 解析失败:", e)
 
     # 3. 实时行情校验：东方财富（拆两批避免限流）—— push2delay 优先（实测稳定），push2 作备用
     secs = [em_secid(c) for c in codes]
