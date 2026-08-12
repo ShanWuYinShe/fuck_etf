@@ -1,5 +1,7 @@
 .workwork/
 .Codex/
+.reasonix/
+.zcode/
 __pycache__/
 *.pyc
 .DS_Store
