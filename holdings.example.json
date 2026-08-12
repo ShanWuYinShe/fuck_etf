@@ -2,6 +2,7 @@
   "accounts": [
     {
       "name": "账号1",
+      "available_cash": null,
       "positions": [
         {
           "code": "159516",
@@ -29,6 +30,7 @@
     },
     {
       "name": "账号2",
+      "available_cash": null,
       "positions": [
         {
           "code": "159516",
