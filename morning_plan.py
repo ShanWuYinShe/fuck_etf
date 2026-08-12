@@ -16,7 +16,8 @@ def main():
     if rc != 0:
         return rc
     print("")
-    print("数据已更新到 .workwork/data/，请将 PROMPT_full.md 与最新数据交给 AI 进行晨间分析。")
+    print("数据已更新到 .workwork/data/，请将 PROMPT_full.md 与最新数据交给 AI 进行晨间分析；")
+    print("AI 分析前必须先读取 .workwork/holdings.json 获取最新持仓。")
     return 0
 
 
