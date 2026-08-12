@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断交给 AI**。完整规则见 `PROMPT_full.md`（含标的全集、持仓数据源说明、消息面与操作纪律；规则历史版本见 git 历史）。
+A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断交给 AI**。完整规则见 `PROMPT_full.md`（含持仓/标的的数据源说明、消息面与操作纪律；规则历史版本见 git 历史）。
 
 ## 常用命令（跨平台，仅需 Python 3）
 
@@ -15,9 +15,9 @@ A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断�
 
 ## 数据与配置
 
-- `.workwork/` 全部为本机数据（已 gitignore，不入库）：`data/` 行情缓存、`holdings.json` 持仓配置。
-- **持仓唯一数据源**：`.workwork/holdings.json`（模板 `holdings.example.json`）。改持仓/成本只改这一个文件，AI 每次分析前必须读取它，不依赖提示词内旧数据。标的清单：`etf_list`（每行一个 6 位代码）。
-- 提示词 `PROMPT_full.md` 含标的全集与持仓数据源说明（不再内嵌持仓表），供直接粘贴给 AI；AI 需自行读取 `.workwork/holdings.json` 获取最新持仓。
+- `.workwork/` 全部为本机数据（已 gitignore，不入库）：`data/` 行情缓存等。
+- **入库数据源（git 管理，可跨设备同步）**：`holdings.json`（持仓唯一数据源，模板 `holdings.example.json`）与 `etf_list`（自选标的清单，每行一个 6 位代码）。改持仓/成本/自选只改这两个文件，AI 每次分析前必须读取它们，不依赖提示词内旧数据。
+- 提示词 `PROMPT_full.md` 含数据源说明（不再内嵌持仓表/标的表），供直接粘贴给 AI；AI 需自行读取 `holdings.json` 与 `etf_list` 获取最新持仓与自选列表。
 
 ## 约束
 
