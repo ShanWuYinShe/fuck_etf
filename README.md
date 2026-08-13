@@ -1,6 +1,6 @@
 # ETF 交易辅助（以 AI 分析为核心）
 
-核心思路：**脚本只负责采集数据，分析和决策交给 AI**。把 [PROMPT_full.md](PROMPT_full.md) 作为系统提示词交给 AI（含当前持仓、消息面规则、操作纪律；标的全集以 `etf_list` 为准，动态读取），AI 结合行情与消息面给出操作建议。
+核心思路：**脚本只负责采集数据，分析和决策交给 AI**。把 [PROMPT_full.md](PROMPT_full.md) 作为系统提示词交给 AI（含消息面规则、操作纪律；持仓以 `holdings.json` 为准、标的全集以 `etf_list` 为准，每轮动态读取），AI 结合行情与消息面给出操作建议。
 
 ## 使用流程
 
@@ -17,7 +17,7 @@ python3 fetch_etf_data.py
 
 1. 安装 Python 3（Windows 安装时可勾选“Add python.exe to PATH”；命令可能是 `python` 而非 `python3`）。
 2. 拷贝或克隆整个项目目录。
-3. 首次配置：`mkdir -p .workwork && cp holdings.example.json .workwork/holdings.json`（Windows 用 `copy` 或资源管理器复制），按实际持仓修改成本/数量/处理线；`etf_list` 按需增删标的。
+3. 首次配置：`cp holdings.example.json holdings.json`（Windows 用 `copy` 或资源管理器复制），按实际持仓修改成本/数量/批次/处理线；`etf_list` 按需增删标的。`holdings.json` 与 `etf_list` 为**入库数据源（git 管理）**，改持仓/自选只改这两个文件，可跨设备同步。
 4. 采集：`python3 fetch_etf_data.py`；晨间预案：`python3 morning_plan.py`；盘中监控：`python3 monitor.py --once`。
 5. 自动化：`python3 automations/install.py`（macOS→launchd、Linux→crontab、Windows→任务计划程序），卸载用 `automations/uninstall.py`。
 
@@ -33,7 +33,7 @@ python3 fetch_etf_data.py
 ## 数据说明
 
 - 实时行情：腾讯（主）+ 新浪/东财（校验）；分时 VWAP、日K 支撑目标、三源快讯（新浪/东财/同花顺）、大盘指数、板块主力资金、外盘（美股/港股/期货/黄金/原油/汇率）、ETF 份额与季报重仓股。
-- `.workwork/data/` 为行情与快讯缓存，`.workwork/holdings.json` 为持仓配置（不入库）。
+- `.workwork/data/` 为行情与快讯缓存（本机数据，不入库）；`holdings.json`（持仓，git 管理）与 `etf_list`（自选，git 管理）为入库数据源，跨设备同步。
 - 数据接口为免费公开源，可能限流；采集脚本内置多级降级与重试（东财主源失败自动切 push2delay，逐只 ETF 数据并行采集）。
 - 每轮生成 `_manifest.json`，记录各数据项采集状态（ok/stale/fail），供 AI 识别并在输出中标注延迟数据，不据延迟数据下单。
 
