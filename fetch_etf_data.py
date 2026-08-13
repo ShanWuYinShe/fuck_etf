@@ -6,21 +6,26 @@
 仅依赖 Python 标准库（urllib + concurrent.futures），Windows / macOS / Linux 通用，无需 curl / iconv / bash。
 输出到 <项目根>/.workwork/data/：
     实时行情三源（腾讯主 / 新浪备 / 东财校验）、折溢价（IOPV）、分时、日/周/月线、
-    三源快讯（新浪 / 东财 / 同花顺）、大盘指数、板块榜、外盘、ETF 份额与季报重仓。
+    消息面快讯（国内七源直连 + 国外四源走代理，合并为 news_merged.json）+ 重仓股公告 news_ann.json、
+    合并为 news_merged.json + 自选ETF重仓股公告 news_ann.json、大盘指数、板块榜、外盘、ETF 份额与季报重仓。
 逐只 ETF 数据并行采集；每轮写 _manifest.json 记录各文件采集状态（ok/stale/fail），供 AI 识别延迟数据。
 
 用法：
     python3 fetch_etf_data.py              # 读取 etf_list
     python3 fetch_etf_data.py 512400 159992
+    python3 fetch_etf_data.py --news-only  # 只刷消息面（快讯+重仓股公告），盘后快速刷新用
 """
 
 import datetime
+import email.utils
+import gzip
 import json
 import os
 import re
 import sys
 import threading
 import time
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib import request
 
@@ -29,6 +34,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, ".workwork", "data")
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
+
+# 本地代理（用于国外新闻源；留空 "" 则跳过国外源，仅采国内源）
+PROXY = "http://127.0.0.1:10809"
 
 # 逐只 ETF 并行度（温和，避免触发免费接口限流）
 MAX_WORKERS = 5
@@ -42,10 +50,17 @@ def market_of(code):
     return "sh" if code.startswith(("5", "11")) else "sz"
 
 
-def http_get(url, timeout=6, headers=None, encoding=None):
+def http_get(url, timeout=6, headers=None, encoding=None, proxy=None):
     req = request.Request(url, headers={"User-Agent": UA, **(headers or {})})
-    with request.urlopen(req, timeout=timeout) as resp:
-        data = resp.read()
+    if proxy:
+        opener = request.build_opener(request.ProxyHandler({"http": proxy, "https": proxy}))
+        with opener.open(req, timeout=timeout) as resp:
+            data = resp.read()
+    else:
+        with request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read()
+    if data[:2] == b"\x1f\x8b":
+        data = gzip.decompress(data)
     return data.decode(encoding or "utf-8", errors="replace")
 
 
@@ -54,18 +69,21 @@ def _record(name, status):
         _manifest[name] = status
 
 
-def fetch_save(name, urls, timeout=6, headers=None, encoding=None):
-    """依次尝试多个 URL，最多 3 轮（指数退避 0.8s / 1.6s）；
+def fetch_save(name, urls, timeout=6, headers=None, encoding=None, retries=3, proxy=None):
+    """依次尝试多个 URL，最多 retries 轮（指数退避 0.8s / 1.6s）；
     拒绝空内容、HTML 错误页与东财 data:null 限流响应。
     返回 "ok"（成功）/"stale"（失败但旧文件存在）/"fail"（失败且无旧文件）。
     """
-    for attempt in range(3):
+    for attempt in range(retries):
         for u in urls:
             try:
-                text = http_get(u, timeout=timeout, headers=headers, encoding=encoding)
+                text = http_get(u, timeout=timeout, headers=headers, encoding=encoding, proxy=proxy)
             except Exception:
                 continue
-            if not text.strip() or text.lstrip().startswith("<") or '"data":null' in text:
+            if not text.strip():
+                continue
+            head = text.lstrip()[:200].lower()
+            if head.startswith(("<html", "<!doctype")) or '"data":null' in text:
                 continue
             with open(os.path.join(DATA_DIR, name), "w", encoding="utf-8") as f:
                 f.write(text)
@@ -93,6 +111,351 @@ def read_codes(cli_codes):
 
 def em_secid(code):
     return ("1." if market_of(code) == "sh" else "0.") + code
+
+
+# ---- 消息面：国内七源（直连）+ 国外四源（走 PROXY）→ 合并为 news_merged.json + 重仓股公告 ----
+# 说明：金十数据为最快源（约0.2s、秒级时效，覆盖宏观/大宗/外汇，含全球视角）；其余为国内快源
+# （新浪7x24/东财/同花顺/华尔街见闻/网易/新浪滚动）。国外源（Google News/Yahoo/BBC/MarketWatch）
+# 走顶部 PROXY 代理（免费 RSS 无 key），实测 1s 级可用；PROXY 留空则自动跳过国外源。
+# 全部源并行采集，总耗时=最慢单源。自动合并为统一 schema 的 news_merged.json，
+# AI 每轮直接读取即可，无需再逐个解析原始文件。
+
+NEWS_RAW = [
+    # (文件名, [URL], timeout, retries, headers)
+    ("news_jin10.json",
+     ["https://flash-api.jin10.com/get_flash_list?channel=-8200&vip=1&max_time=0"],
+     8, 2, {"x-app-id": "bVBF4FyRTn5NJF5n", "x-version": "1.0.0",
+            "x-requested-with": "XMLHttpRequest", "Accept-Encoding": "gzip"}),
+    ("news.json",
+     ["https://zhibo.sina.com.cn/api/zhibo/feed?page=1&page_size=30&zhibo_id=152"],
+     6, 2, None),
+    ("news_eastmoney.txt",
+     ["https://newsapi.eastmoney.com/kuaixun/v1/getlist_102_ajaxResult_30_1_.html"],
+     6, 2, None),
+    ("news_10jqka.json",
+     ["https://news.10jqka.com.cn/tapp/news/push/stock/?page=1&pagesize=30"],
+     6, 2, None),
+    ("news_wallstcn.json",
+     ["https://api-one.wallstcn.com/apiv1/content/lives?channel=global-channel&limit=30"],
+     8, 2, None),
+    ("news_163.txt",
+     ["https://money.163.com/special/00259BVP/news_flow_index.js"],
+     10, 1, None),
+    ("news_sina_roll.json",
+     ["https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2516&k=&num=30&page=1"],
+     8, 2, None),
+]
+
+
+def _norm_time(raw):
+    """统一为 %Y-%m-%d %H:%M:%S；支持 unix 秒 与 MM/DD/YYYY HH:MM:SS。"""
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    if s.isdigit() and len(s) == 10:
+        try:
+            return datetime.datetime.fromtimestamp(int(s)).strftime("%Y-%m-%d %H:%M:%S")
+        except (OSError, ValueError, OverflowError):
+            return ""
+    try:
+        return datetime.datetime.strptime(s, "%m/%d/%Y %H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        pass
+    return s[:19]
+
+
+def _read_raw(name):
+    p = os.path.join(DATA_DIR, name)
+    if not os.path.exists(p):
+        return ""
+    with open(p, encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+
+def parse_news_sina_zhibo():
+    items = []
+    try:
+        d = json.loads(_read_raw("news.json"))
+        for it in (d.get("result", {}).get("data", {}).get("feed", {}).get("list") or []):
+            t = it.get("rich_text") or ""
+            if not t:
+                continue
+            m = re.match(r"^【(.+?)】", t)
+            items.append({"time": _norm_time(it.get("create_time")), "source": "新浪7x24",
+                          "title": m.group(1) if m else t[:40], "text": t, "url": ""})
+    except Exception:
+        pass
+    return items
+
+
+def parse_news_eastmoney():
+    items = []
+    try:
+        t = _read_raw("news_eastmoney.txt")
+        body = t[t.find("{"):t.rfind("}") + 1]  # 剥 var ajaxResult= 前缀
+        for it in json.loads(body).get("LivesList") or []:
+            title = it.get("title") or ""
+            if not title:
+                continue
+            items.append({"time": _norm_time(it.get("showtime")), "source": "东方财富",
+                          "title": title, "text": it.get("digest") or title,
+                          "url": it.get("url_unique") or ""})
+    except Exception:
+        pass
+    return items
+
+
+def parse_news_10jqka():
+    items = []
+    try:
+        d = json.loads(_read_raw("news_10jqka.json"))
+        for it in d.get("data", {}).get("list") or []:
+            title = it.get("title") or ""
+            if not title:
+                continue
+            items.append({"time": _norm_time(it.get("ctime")), "source": "同花顺",
+                          "title": title, "text": it.get("summary") or title,
+                          "url": it.get("url") or it.get("url_m") or ""})
+    except Exception:
+        pass
+    return items
+
+
+def parse_news_wallstcn():
+    items = []
+    try:
+        d = json.loads(_read_raw("news_wallstcn.json"))
+        for it in d.get("data", {}).get("items") or []:
+            title = it.get("title") or ""
+            if not title:
+                continue
+            items.append({"time": _norm_time(it.get("display_time")), "source": "华尔街见闻",
+                          "title": title, "text": it.get("content_text") or title,
+                          "url": it.get("uri") or ""})
+    except Exception:
+        pass
+    return items
+
+
+def parse_news_163():
+    items = []
+    try:
+        t = _read_raw("news_163.txt")
+        body = t[t.find("["):t.rfind("]") + 1]  # 剥 data_callback( 前缀
+        for it in json.loads(body):
+            title = it.get("title") or ""
+            if not title:
+                continue
+            items.append({"time": _norm_time(it.get("time")), "source": "网易7x24",
+                          "title": title, "text": it.get("digest") or title,
+                          "url": it.get("docurl") or ""})
+    except Exception:
+        pass
+    return items
+
+
+def parse_news_sina_roll():
+    items = []
+    try:
+        d = json.loads(_read_raw("news_sina_roll.json"))
+        data = d.get("result", {}).get("data") or []
+        if isinstance(data, dict):
+            data = data.get("list") or []
+        for it in data:
+            title = it.get("title") or ""
+            if not title:
+                continue
+            items.append({"time": _norm_time(it.get("ctime")), "source": "新浪滚动",
+                          "title": title, "text": title, "url": it.get("url") or ""})
+    except Exception:
+        pass
+    return items
+
+
+def parse_news_jin10():
+    """金十数据（最快源）：data[] 中过滤 PLUS 锁定条目（content 为空）。"""
+    items = []
+    try:
+        d = json.loads(_read_raw("news_jin10.json"))
+        for it in d.get("data") or []:
+            dd = it.get("data") or {}
+            content = dd.get("content") or ""
+            if not content:
+                continue
+            m = re.match(r"^【(.+?)】", content)
+            items.append({"time": _norm_time(it.get("time")), "source": "金十",
+                          "title": dd.get("title") or (m.group(1) if m else content[:40]),
+                          "text": content, "url": dd.get("source_link") or ""})
+    except Exception:
+        pass
+    return items
+
+
+def parse_news_cnbc():
+    """（已弃用：CNBC 偶发超时且内容偏美股，全球宏观由金十覆盖；保留函数便于日后恢复）"""
+    return []
+
+
+# ---- 国外新闻源（走 PROXY 代理；RSS 免费无 key） ----
+# 实测（2026-08-13）：Google News / Yahoo / BBC / MarketWatch / CNBC / Investing 走代理均 1s 级可用；
+# Reuters(404) / FT / Bloomberg / AP / Economist(SSL) 不可用，WSJ 内容陈旧，均弃用。
+NEWS_FOREIGN_RAW = [
+    # (文件名, [URL], timeout, retries, headers)
+    ("news_google.json",
+     ["https://news.google.com/rss?hl=zh-CN&gl=CN&ceid=CN:zh-Hans"], 10, 1, None),
+    ("news_yahoo.json",
+     ["https://finance.yahoo.com/news/rssindex"], 10, 1, None),
+    ("news_bbc.json",
+     ["https://feeds.bbci.co.uk/news/business/rss.xml"], 10, 1, None),
+    ("news_marketwatch.json",
+     ["https://feeds.content.dowjones.io/public/rss/mw_topstories"], 10, 1, None),
+]
+
+
+def _norm_rss_time(raw):
+    """RSS 时间为 GMT/UTC，转北京时间；支持 RFC2822 与 ISO8601。"""
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    try:
+        dt = email.utils.parsedate_to_datetime(s)
+        return (dt + datetime.timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError, OverflowError):
+        pass
+    try:
+        dt = datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return (dt + datetime.timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return s[:19]
+
+
+def parse_news_rss(fname, source):
+    """通用 RSS 解析（item 的 title/pubDate/description/link）。"""
+    items = []
+    try:
+        root = ET.fromstring(_read_raw(fname))
+        for it in root.iter("item"):
+            title = it.findtext("title") or ""
+            if not title:
+                continue
+            items.append({"time": _norm_rss_time(it.findtext("pubDate")
+                                                 or it.findtext("published") or ""),
+                          "source": source, "title": title,
+                          "text": it.findtext("description") or title,
+                          "url": it.findtext("link") or ""})
+    except Exception:
+        pass
+    return items
+
+
+def parse_news_google():
+    return parse_news_rss("news_google.json", "Google新闻")
+
+
+def parse_news_yahoo():
+    return parse_news_rss("news_yahoo.json", "Yahoo财经")
+
+
+def parse_news_bbc():
+    return parse_news_rss("news_bbc.json", "BBC商业")
+
+
+def parse_news_marketwatch():
+    return parse_news_rss("news_marketwatch.json", "MarketWatch")
+
+
+def merge_news():
+    """七源（国内）+ 四源（国外，代理）解析合并：去重（标题前25字）、时间倒序、上限 150 条。"""
+    items = []
+    for fn in (parse_news_jin10, parse_news_sina_zhibo, parse_news_eastmoney,
+               parse_news_10jqka, parse_news_wallstcn, parse_news_163,
+               parse_news_sina_roll, parse_news_google, parse_news_yahoo,
+               parse_news_bbc, parse_news_marketwatch):
+        items.extend(fn())
+    seen, uniq = set(), []
+    for it in sorted(items, key=lambda x: x["time"] or "", reverse=True):
+        k = (it["title"] or "")[:25]
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(it)
+    return uniq[:150]
+
+
+def fetch_holdings_ann(codes):
+    """自选 ETF 季报重仓股（前10，去重上限60只）最近3天 A 股公告 → news_ann.json。
+    覆盖业绩/回购/增减持/重组等一手公告，解决个股公告滞后于快讯的问题。"""
+    stocks = {}
+    for c in codes:
+        p = os.path.join(DATA_DIR, f"holdings_{c}.json")
+        if not os.path.exists(p):
+            continue
+        try:
+            d = json.load(open(p, encoding="utf-8"))
+            for s in d.get("Datas", {}).get("fundStocks") or []:
+                g = str(s.get("GPDM") or "")
+                if g.isdigit() and len(g) == 6:
+                    stocks.setdefault(g, s.get("GPJC") or "")
+        except Exception:
+            continue
+    results = []
+    if stocks:
+        url_tpl = ("https://np-anotice-stock.eastmoney.com/api/security/ann"
+                   "?sr=-1&page_size=3&page_index=1&ann_type=A&client_source=web&stock_list={code}")
+        cutoff = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
+
+        def one(item):
+            code, name = item
+            try:
+                t = http_get(url_tpl.format(code=code), timeout=6)
+                d = json.loads(t)
+                for it in (d.get("data") or {}).get("list") or []:
+                    date = (it.get("notice_date") or "")[:10]
+                    if date >= cutoff:
+                        results.append({"code": code, "name": name, "date": date,
+                                        "title": it.get("title") or ""})
+            except Exception:
+                pass
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            list(ex.map(one, list(stocks.items())[:60]))
+        results.sort(key=lambda x: x["date"] + x["title"], reverse=True)
+    doc = {"fetch_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+           "cutoff": cutoff, "count": len(results), "items": results}
+    with open(os.path.join(DATA_DIR, "news_ann.json"), "w", encoding="utf-8") as f:
+        json.dump(doc, f, ensure_ascii=False, indent=1)
+    _record("news_ann.json", "ok" if stocks else "stale")
+    print(f"重仓股公告：{len(results)} 条（覆盖 {len(stocks)} 只股票，近3天）")
+
+
+def fetch_news(codes):
+    """消息面采集：国内七源 + 国外四源（需 PROXY）并行抓取 → news_merged.json；
+    重仓股公告 → news_ann.json。总耗时≈最慢单源；任一源失败不影响其他源；
+    盘后可用 --news-only 单独刷新。"""
+    jobs = [(name, urls, timeout, headers, retries, None)
+            for name, urls, timeout, retries, headers in NEWS_RAW]
+    if PROXY:
+        jobs += [(name, urls, timeout, headers, retries, PROXY)
+                 for name, urls, timeout, retries, headers in NEWS_FOREIGN_RAW]
+    else:
+        print("提示：未配置 PROXY（fetch_etf_data.py 顶部），跳过国外新闻源")
+    with ThreadPoolExecutor(max_workers=len(jobs)) as ex:
+        futures = [ex.submit(fetch_save, name, urls, timeout, headers, None, retries, proxy)
+                   for name, urls, timeout, headers, retries, proxy in jobs]
+        for _ in as_completed(futures):
+            pass
+    items = merge_news()
+    if items:
+        doc = {"fetch_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+               "count": len(items), "items": items}
+        with open(os.path.join(DATA_DIR, "news_merged.json"), "w", encoding="utf-8") as f:
+            json.dump(doc, f, ensure_ascii=False, indent=1)
+        _record("news_merged.json", "ok")
+    else:
+        status = "stale" if os.path.exists(os.path.join(DATA_DIR, "news_merged.json")) else "fail"
+        _record("news_merged.json", status)
+        print(f"警告：news_merged.json 七源均解析失败（{status}）")
+    fetch_holdings_ann(codes)
 
 
 def fetch_global(codes):
@@ -142,13 +505,8 @@ def fetch_global(codes):
             f"http://push2.eastmoney.com/api/qt/ulist.np/get?secids={q}&fields={em_fields}",
         ])
 
-    # 4. 三源快讯
-    fetch_save("news.json",
-               ["https://zhibo.sina.com.cn/api/zhibo/feed?page=1&page_size=30&zhibo_id=152"])
-    fetch_save("news_eastmoney.txt",
-               ["https://newsapi.eastmoney.com/kuaixun/v1/getlist_102_ajaxResult_30_1_.html"])
-    fetch_save("news_10jqka.json",
-               ["https://news.10jqka.com.cn/tapp/news/push/stock/?page=1&pagesize=30"])
+    # 4. 消息面：七源快讯（news_merged.json）+ 重仓股公告（news_ann.json）
+    fetch_news(codes)
 
     # 5. 大盘指数：实时 + 近 3 日日K（含成交额）
     fetch_save("index_realtime.txt", ["https://qt.gtimg.cn/q=sh000001,sz399006"], encoding="gbk")
@@ -213,7 +571,11 @@ def write_manifest(fetch_time_str):
 
 
 def main():
-    codes = read_codes(" ".join(sys.argv[1:]))
+    args = [a for a in sys.argv[1:]]
+    news_only = "--news-only" in args
+    if news_only:
+        args.remove("--news-only")
+    codes = read_codes(" ".join(args))
     if not codes:
         print("未找到有效代码（etf_list 为空或参数无效）")
         return 1
@@ -224,14 +586,18 @@ def main():
     with open(os.path.join(DATA_DIR, "fetch_time.txt"), "w", encoding="utf-8") as f:
         f.write(fetch_time_str)
 
-    # 全局接口（串行）
-    fetch_global(codes)
+    if news_only:
+        # 盘后/盘中快速刷新消息面（快讯+重仓股公告），不刷行情
+        fetch_news(codes)
+    else:
+        # 全局接口（串行）
+        fetch_global(codes)
 
-    # 逐只 ETF（并行）
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        futures = [ex.submit(fetch_one_etf, c) for c in codes]
-        for _ in as_completed(futures):
-            pass
+        # 逐只 ETF（并行）
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+            futures = [ex.submit(fetch_one_etf, c) for c in codes]
+            for _ in as_completed(futures):
+                pass
 
     elapsed = time.time() - t0
     summary = write_manifest(fetch_time_str)

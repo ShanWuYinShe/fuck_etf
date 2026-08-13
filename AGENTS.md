@@ -6,7 +6,7 @@ A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断�
 
 ## 常用命令（跨平台，仅需 Python 3）
 
-- 采集：`python3 fetch_etf_data.py`（实时三源、分时、日K、三源快讯、指数、板块、外盘、ETF 份额/重仓 → `.workwork/data/`）
+- 采集：`python3 fetch_etf_data.py`（实时三源、分时、日K、十一源快讯并行合并 [国内7源直连+国外4源走代理，代理在脚本顶部 PROXY 配置] 与重仓股公告、指数、板块、外盘、ETF 份额/重仓 → `.workwork/data/`）；盘后只刷消息面：`python3 fetch_etf_data.py --news-only`
 - 晨间预案：`python3 morning_plan.py`（只采集数据，提示交给 AI 分析）
 - 盘中监控：`python3 monitor.py`（`--once` 单轮 / `--until-close` 盘中会话，仅采集）
 - 自动化：`python3 automations/install.py`（macOS→launchd、Linux→crontab、Windows→任务计划程序）、`python3 automations/uninstall.py`
