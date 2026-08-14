@@ -4,18 +4,6 @@
       "name": "账号1",
       "positions": [
         {
-          "code": "518880",
-          "name": "黄金ETF华安",
-          "stop": 8.97,
-          "reduce_low": 9.14,
-          "reduce_high": 9.16,
-          "add": 8.99,
-          "target": 9.2,
-          "batches": [
-            { "cost": 9.06, "shares": 20000, "buy_time": "2026-08-13" }
-          ]
-        },
-        {
           "code": "588200",
           "name": "科创芯片ETF嘉实",
           "stop": 1.227,
