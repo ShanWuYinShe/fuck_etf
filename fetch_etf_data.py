@@ -399,10 +399,10 @@ def fetch_holdings_ann(codes):
         except Exception:
             continue
     results = []
+    cutoff = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
     if stocks:
         url_tpl = ("https://np-anotice-stock.eastmoney.com/api/security/ann"
                    "?sr=-1&page_size=3&page_index=1&ann_type=A&client_source=web&stock_list={code}")
-        cutoff = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
 
         def one(item):
             code, name = item
