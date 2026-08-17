@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-跨平台 ETF 数据采集（v2.1 规范）
+跨平台 ETF 数据采集
 
 仅依赖 Python 标准库（urllib + concurrent.futures），Windows / macOS / Linux 通用，无需 curl / iconv / bash。
 输出到 <项目根>/.workwork/data/：
-    实时行情三源（腾讯主 / 新浪备 / 东财校验）、折溢价（IOPV）、分时、日/周/月线、
-    消息面快讯（国内七源直连 + 国外四源走代理，合并为 news_merged.json）+ 重仓股公告 news_ann.json、
-    合并为 news_merged.json + 自选ETF重仓股公告 news_ann.json、大盘指数、板块榜、外盘、ETF 份额与季报重仓。
-逐只 ETF 数据并行采集；每轮写 _manifest.json 记录各文件采集状态（ok/stale/fail），供 AI 识别延迟数据。
+    实时行情三源（腾讯主 / 新浪备 / 东财校验）、折溢价（IOPV）、分时、日/周/月线、大盘指数、板块榜、
+    外盘与汇率、ETF 份额与季报重仓、消息面快讯（国内七源直连 + 国外四源走代理，每轮实时采集合并为
+    news_merged.json）与自选 ETF 重仓股公告（news_ann.json）。
+逐只 ETF 数据并行采集。不保留历史数据：某项采集失败即删除其旧缓存；每轮启动时自动清理不在当前
+自选列表的标的级缓存文件。每轮写 _manifest.json 记录各文件采集状态（ok/fail），fail 项无数据文件。
 
 用法：
     python3 fetch_etf_data.py              # 读取 etf_list
@@ -41,7 +42,7 @@ PROXY = "http://127.0.0.1:10809"
 # 逐只 ETF 并行度（温和，避免触发免费接口限流）
 MAX_WORKERS = 5
 
-# 采集状态汇总：{文件名: "ok"|"stale"|"fail"}，线程安全
+# 采集状态汇总：{文件名: "ok"|"fail"}，线程安全
 _manifest = {}
 _manifest_lock = threading.Lock()
 
@@ -72,7 +73,7 @@ def _record(name, status):
 def fetch_save(name, urls, timeout=6, headers=None, encoding=None, retries=3, proxy=None):
     """依次尝试多个 URL，最多 retries 轮（指数退避 0.8s / 1.6s）；
     拒绝空内容、HTML 错误页与东财 data:null 限流响应。
-    返回 "ok"（成功）/"stale"（失败但旧文件存在）/"fail"（失败且无旧文件）。
+    返回 "ok"（成功）/"fail"（失败，同时删除旧缓存，不保留历史数据）。
     """
     for attempt in range(retries):
         for u in urls:
@@ -91,10 +92,12 @@ def fetch_save(name, urls, timeout=6, headers=None, encoding=None, retries=3, pr
             return "ok"
         if attempt < 2:
             time.sleep(0.8 * (2 ** attempt))  # 0.8s, 1.6s
-    status = "stale" if os.path.exists(os.path.join(DATA_DIR, name)) else "fail"
-    print(f"警告：{name} 所有数据源均失败（{status}）")
-    _record(name, status)
-    return status
+    path = os.path.join(DATA_DIR, name)
+    if os.path.exists(path):
+        os.remove(path)  # 不保留历史数据：失败即清除旧文件，避免把旧数据当实时数据用
+    print(f"警告：{name} 所有数据源均失败（已清除旧数据）")
+    _record(name, "fail")
+    return "fail"
 
 
 def read_codes(cli_codes):
@@ -107,6 +110,25 @@ def read_codes(cli_codes):
             if m:
                 codes.append(m.group())
     return codes
+
+
+PER_CODE_PREFIXES = ("day_", "week_", "month_", "minute_", "fund_", "holdings_")
+
+
+def cleanup_cache(codes):
+    """不保留历史数据：删除代码不在当前自选列表的标的级缓存文件。"""
+    keep = set(codes)
+    removed = 0
+    for fn in os.listdir(DATA_DIR):
+        for prefix in PER_CODE_PREFIXES:
+            if fn.startswith(prefix):
+                code = fn[len(prefix):].split(".")[0]
+                if code not in keep:
+                    os.remove(os.path.join(DATA_DIR, fn))
+                    removed += 1
+                break
+    if removed:
+        print(f"已清理 {removed} 个非当前自选标的的历史缓存文件")
 
 
 def em_secid(code):
@@ -420,11 +442,17 @@ def fetch_holdings_ann(codes):
         with ThreadPoolExecutor(max_workers=8) as ex:
             list(ex.map(one, list(stocks.items())[:60]))
         results.sort(key=lambda x: x["date"] + x["title"], reverse=True)
-    doc = {"fetch_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-           "cutoff": cutoff, "count": len(results), "items": results}
-    with open(os.path.join(DATA_DIR, "news_ann.json"), "w", encoding="utf-8") as f:
-        json.dump(doc, f, ensure_ascii=False, indent=1)
-    _record("news_ann.json", "ok" if stocks else "stale")
+    ann_path = os.path.join(DATA_DIR, "news_ann.json")
+    if stocks:
+        doc = {"fetch_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+               "cutoff": cutoff, "count": len(results), "items": results}
+        with open(ann_path, "w", encoding="utf-8") as f:
+            json.dump(doc, f, ensure_ascii=False, indent=1)
+        _record("news_ann.json", "ok")
+    else:
+        if os.path.exists(ann_path):
+            os.remove(ann_path)  # 不保留历史数据
+        _record("news_ann.json", "fail")
     print(f"重仓股公告：{len(results)} 条（覆盖 {len(stocks)} 只股票，近3天）")
 
 
@@ -452,9 +480,11 @@ def fetch_news(codes):
             json.dump(doc, f, ensure_ascii=False, indent=1)
         _record("news_merged.json", "ok")
     else:
-        status = "stale" if os.path.exists(os.path.join(DATA_DIR, "news_merged.json")) else "fail"
-        _record("news_merged.json", status)
-        print(f"警告：news_merged.json 七源均解析失败（{status}）")
+        merged_path = os.path.join(DATA_DIR, "news_merged.json")
+        if os.path.exists(merged_path):
+            os.remove(merged_path)  # 不保留历史数据：快讯必须实时，失败即删旧文件
+        _record("news_merged.json", "fail")
+        print("警告：news_merged.json 各源均解析失败（已清除旧数据）")
     fetch_holdings_ann(codes)
 
 
@@ -469,6 +499,7 @@ def fetch_global(codes):
                headers={"Referer": "https://finance.sina.com.cn"}, encoding="gbk")
 
     # 2.5 折溢价（IOPV）：解析腾讯字段 [78]（盘中实时参考净值），跨境/商品类溢价风险提示用
+    iopv_path = os.path.join(DATA_DIR, "realtime_iopv.json")
     try:
         with open(os.path.join(DATA_DIR, "realtime.txt"), encoding="utf-8") as f:
             qt_raw = f.read()
@@ -486,10 +517,14 @@ def fetch_global(codes):
                 iopv_rows.append({"code": parts[2], "name": parts[1], "price": price,
                                   "iopv": iopv, "premium_pct": round((price / iopv - 1) * 100, 3)})
         if iopv_rows:
-            with open(os.path.join(DATA_DIR, "realtime_iopv.json"), "w", encoding="utf-8") as f:
+            with open(iopv_path, "w", encoding="utf-8") as f:
                 f.write(json.dumps(iopv_rows, ensure_ascii=False))
             _record("realtime_iopv.json", "ok")
+        elif os.path.exists(iopv_path):
+            os.remove(iopv_path)
     except Exception as e:
+        if os.path.exists(iopv_path):
+            os.remove(iopv_path)
         print("IOPV 解析失败:", e)
 
     # 3. 实时行情校验：东方财富（拆两批避免限流）—— push2delay 优先（实测稳定），push2 作备用
@@ -561,7 +596,7 @@ def fetch_one_etf(code):
 
 
 def write_manifest(fetch_time_str):
-    summary = {"ok": 0, "stale": 0, "fail": 0}
+    summary = {"ok": 0, "fail": 0}
     for v in _manifest.values():
         summary[v] = summary.get(v, 0) + 1
     doc = {"fetch_time": fetch_time_str, "summary": summary, "files": dict(_manifest)}
@@ -580,6 +615,7 @@ def main():
         print("未找到有效代码（etf_list 为空或参数无效）")
         return 1
     os.makedirs(DATA_DIR, exist_ok=True)
+    cleanup_cache(codes)
 
     t0 = time.time()
     fetch_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -601,8 +637,8 @@ def main():
 
     elapsed = time.time() - t0
     summary = write_manifest(fetch_time_str)
-    print(f"完成：{len(codes)} 只 ETF，{summary['ok']} ok / {summary['stale']} stale / "
-          f"{summary['fail']} fail，耗时 {elapsed:.1f}s → {DATA_DIR}/")
+    print(f"完成：{len(codes)} 只 ETF，{summary['ok']} ok / {summary['fail']} fail，"
+          f"耗时 {elapsed:.1f}s → {DATA_DIR}/")
     return 0
 
 
