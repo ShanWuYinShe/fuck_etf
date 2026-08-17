@@ -543,10 +543,10 @@ def fetch_global(codes):
     # 4. 消息面：七源快讯（news_merged.json）+ 重仓股公告（news_ann.json）
     fetch_news(codes)
 
-    # 5. 大盘指数：实时 + 近 3 日日K（含成交额）
+    # 5. 大盘指数：实时 + 近 30 日日K（含成交额；30 日用于计算 20 日线，供 8.1 大盘环境分级）
     fetch_save("index_realtime.txt", ["https://qt.gtimg.cn/q=sh000001,sz399006"], encoding="gbk")
     kline_fields = ("fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,"
-                    "f58,f59,f60,f61&klt=101&fqt=0&end=20500101&lmt=3")
+                    "f58,f59,f60,f61&klt=101&fqt=0&end=20500101&lmt=30")
     for name, secid in (("index_kline_sh.json", "1.000001"), ("index_kline_sz.json", "0.399006")):
         fetch_save(name, [
             f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={secid}&{kline_fields}",

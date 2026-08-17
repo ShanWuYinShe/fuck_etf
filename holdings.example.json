@@ -11,13 +11,6 @@
             { "cost": 1.220, "shares": 40000, "buy_time": "2026-08-12" },
             { "cost": 1.246, "shares": 130000, "buy_time": "2026-08-13" }
           ]
-        },
-        {
-          "code": "159858",
-          "name": "创新药",
-          "cost": 0.749,
-          "shares": 5200,
-          "buy_time": null
         }
       ]
     },
@@ -28,9 +21,9 @@
         {
           "code": "159516",
           "name": "半导体设备",
-          "cost": 0.746,
-          "shares": 30000,
-          "buy_time": null
+          "batches": [
+            { "cost": 0.746, "shares": 30000, "buy_time": null }
+          ]
         }
       ]
     }
