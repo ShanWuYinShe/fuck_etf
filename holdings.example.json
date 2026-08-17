@@ -7,11 +7,6 @@
         {
           "code": "588200",
           "name": "科创芯片",
-          "stop": 1.227,
-          "reduce_low": 1.258,
-          "reduce_high": 1.272,
-          "add": 1.222,
-          "target": 1.283,
           "batches": [
             { "cost": 1.220, "shares": 40000, "buy_time": "2026-08-12" },
             { "cost": 1.246, "shares": 130000, "buy_time": "2026-08-13" }
@@ -22,12 +17,7 @@
           "name": "创新药",
           "cost": 0.749,
           "shares": 5200,
-          "buy_time": null,
-          "stop": 0.715,
-          "reduce_low": 0.75,
-          "reduce_high": 0.76,
-          "add": 0.72,
-          "target": 0.764
+          "buy_time": null
         }
       ]
     },
@@ -40,11 +30,7 @@
           "name": "半导体设备",
           "cost": 0.746,
           "shares": 30000,
-          "stop": 0.735,
-          "reduce_low": 0.75,
-          "reduce_high": 0.76,
-          "add": 0.72,
-          "target": null
+          "buy_time": null
         }
       ]
     }

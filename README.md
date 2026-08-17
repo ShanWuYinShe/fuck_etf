@@ -17,7 +17,7 @@ python3 fetch_etf_data.py
 
 1. 安装 Python 3（Windows 安装时可勾选“Add python.exe to PATH”；命令可能是 `python` 而非 `python3`）。
 2. 拷贝或克隆整个项目目录。
-3. 首次配置：`cp holdings.example.json holdings.json`（Windows 用 `copy` 或资源管理器复制），按实际持仓修改成本/数量/批次/处理线；`etf_list` 按需增删标的。`holdings.json` 与 `etf_list` 为**入库数据源（git 管理）**，改持仓/自选只改这两个文件，可跨设备同步。
+3. 首次配置：`cp holdings.example.json holdings.json`（Windows 用 `copy` 或资源管理器复制），按实际持仓只填代码/名称/买入批次（成本/数量/买入时间），**止损/减仓/加仓/目标等处理线不写文件、由 AI 每轮按实时行情推导**；`etf_list` 按需增删标的。`holdings.json` 与 `etf_list` 为**入库数据源（git 管理）**，改持仓/自选只改这两个文件，可跨设备同步。
 4. 采集：`python3 fetch_etf_data.py`；晨间预案：`python3 morning_plan.py`；盘中监控：`python3 monitor.py --once`。
 5. 自动化：`python3 automations/install.py`（macOS→launchd、Linux→crontab、Windows→任务计划程序），卸载用 `automations/uninstall.py`。
 

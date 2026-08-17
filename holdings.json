@@ -6,11 +6,6 @@
         {
           "code": "588200",
           "name": "科创芯片ETF嘉实",
-          "stop": 1.227,
-          "reduce_low": 1.258,
-          "reduce_high": 1.272,
-          "add": 1.222,
-          "target": 1.283,
           "batches": [
             { "cost": 1.246, "shares": 65000, "buy_time": "2026-08-13" }
           ]
@@ -18,11 +13,6 @@
         {
           "code": "159992",
           "name": "创新药ETF银华",
-          "stop": 0.91,
-          "reduce_low": 0.936,
-          "reduce_high": 0.94,
-          "add": 0.908,
-          "target": 0.949,
           "batches": [
             { "cost": 0.921, "shares": 80000, "buy_time": "2026-08-14" }
           ]
