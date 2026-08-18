@@ -7,14 +7,23 @@
           "code": "588200",
           "name": "科创芯片ETF嘉实",
           "batches": [
-            { "cost": 1.246, "shares": 29000, "buy_time": "2026-08-13" }
+            { "cost": 1.246, "shares": 29000, "buy_time": "2026-08-13" },
+            { "cost": 1.248, "shares": 80000, "buy_time": "2026-08-18" }
           ]
         },
         {
           "code": "159992",
           "name": "创新药ETF银华",
           "batches": [
-            { "cost": 0.921, "shares": 80000, "buy_time": "2026-08-14" }
+            { "cost": 0.921, "shares": 80000, "buy_time": "2026-08-14" },
+            { "cost": 0.909, "shares": 80000, "buy_time": "2026-08-18" }
+          ]
+        },
+        {
+          "code": "515880",
+          "name": "通信ETF国泰",
+          "batches": [
+            { "cost": 0.708, "shares": 80000, "buy_time": "2026-08-18" }
           ]
         }
       ]
