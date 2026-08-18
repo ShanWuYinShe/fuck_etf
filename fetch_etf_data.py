@@ -12,7 +12,7 @@
 自选列表的标的级缓存文件。每轮写 _manifest.json 记录各文件采集状态（ok/fail），fail 项无数据文件。
 
 用法：
-    python3 fetch_etf_data.py              # 读取 etf_list
+    python3 fetch_etf_data.py              # 读取 etf_list.txt
     python3 fetch_etf_data.py 512400 159992
     python3 fetch_etf_data.py --news-only  # 只刷消息面（快讯+重仓股公告），盘后快速刷新用
 """
@@ -104,7 +104,7 @@ def read_codes(cli_codes):
     if cli_codes:
         return [c for c in re.split(r"[,\s]+", cli_codes) if re.fullmatch(r"\d{6}", c)]
     codes = []
-    with open(os.path.join(BASE_DIR, "etf_list"), encoding="utf-8") as f:
+    with open(os.path.join(BASE_DIR, "etf_list.txt"), encoding="utf-8") as f:
         for line in f:
             m = re.search(r"\d{6}", line)
             if m:
@@ -612,7 +612,7 @@ def main():
         args.remove("--news-only")
     codes = read_codes(" ".join(args))
     if not codes:
-        print("未找到有效代码（etf_list 为空或参数无效）")
+        print("未找到有效代码（etf_list.txt 为空或参数无效）")
         return 1
     os.makedirs(DATA_DIR, exist_ok=True)
     cleanup_cache(codes)
