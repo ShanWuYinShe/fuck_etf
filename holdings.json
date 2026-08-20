@@ -28,7 +28,8 @@
           "code": "159516",
           "name": "半导体设备ETF国泰",
           "batches": [
-            { "cost": 0.765, "shares": 98900, "buy_time": "2026-08-19" }
+            { "cost": 0.765, "shares": 98900, "buy_time": "2026-08-19" },
+            { "cost": 0.731, "shares": 100000, "buy_time": "2026-08-20" }
           ]
         }
       ]
