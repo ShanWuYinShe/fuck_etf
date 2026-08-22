@@ -21,7 +21,7 @@
           "code": "515880",
           "name": "通信ETF国泰",
           "batches": [
-            { "cost": 0.753, "shares": 40000, "buy_time": "2026-08-18" }
+            { "cost": 0.753, "shares": 40000, "buy_time": "2026-08-18" },
             { "cost": 0.679, "shares": -40000, "buy_time": "2026-08-21" }
           ]
         },
