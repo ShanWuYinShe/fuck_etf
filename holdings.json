@@ -7,28 +7,35 @@
           "code": "588200",
           "name": "科创芯片ETF嘉实",
           "batches": [
-            { "cost": 1.323, "shares": 54500, "buy_time": "2026-08-13" },
+            { "cost": 1.246, "shares": 130000, "buy_time": "2026-08-13" },
+            { "cost": 1.234, "shares": -65000, "buy_time": "2026-08-17" },
+            { "cost": 1.260, "shares": -21600, "buy_time": "2026-08-17" },
+            { "cost": 1.262, "shares": -14400, "buy_time": "2026-08-17" },
+            { "cost": 1.248, "shares": 80000, "buy_time": "2026-08-18" },
+            { "cost": 1.177, "shares": -54500, "buy_time": "2026-08-19" },
             { "cost": 1.150, "shares": 18100, "buy_time": "2026-08-24" },
-            { "cost": 1.155, "shares": -24200, "buy_time": "2026-08-26" }
+            { "cost": 1.155, "shares": -24200, "buy_time": "2026-08-24" }
           ]
         },
-        {
-          "code": "159992",
+        { "code": "159992",
           "name": "创新药ETF银华",
           "batches": [
-            { "cost": 0.765, "shares": 43400, "buy_time": "2026-08-14" },
+            { "cost": 0.921, "shares": 80000, "buy_time": "2026-08-14" },
+            { "cost": 0.909, "shares": 80000, "buy_time": "2026-08-18" },
+            { "cost": 0.899, "shares": 100000, "buy_time": "2026-08-19" },
+            { "cost": 0.942, "shares": -86600, "buy_time": "2026-08-20" },
+            { "cost": 0.944, "shares": -86700, "buy_time": "2026-08-20" },
+            { "cost": 0.907, "shares": -43300, "buy_time": "2026-08-21" },
             { "cost": 0.861, "shares": 25200, "buy_time": "2026-08-24" },
-            { "cost": 0.861, "shares": -34300, "buy_time": "2026-08-25" }
+            { "cost": 0.857, "shares": -34300, "buy_time": "2026-08-25" }
           ]
         },
         {
           "code": "515880",
           "name": "通信ETF国泰",
           "batches": [
-            { "cost": 0.753, "shares": 40000, "buy_time": "2026-08-18" },
-            { "cost": 0.679, "shares": -40000, "buy_time": "2026-08-21" },
             { "cost": 0.656, "shares": 40000, "buy_time": "2026-08-24" },
-            { "cost": 0.656, "shares": -20000, "buy_time": "2026-08-25" },
+            { "cost": 0.651, "shares": -20000, "buy_time": "2026-08-25" },
             { "cost": 0.655, "shares": -10000, "buy_time": "2026-08-26" }
           ]
         },
@@ -36,9 +43,11 @@
           "code": "159516",
           "name": "半导体设备ETF国泰",
           "batches": [
-            { "cost": 0.748, "shares": 198900, "buy_time": "2026-08-18" },
-            { "cost": 0.687, "shares": 80000, "buy_time": "2026-08-25" },
-            { "cost": 0.687, "shares": 80000, "buy_time": "2026-08-25" },
+            { "cost": 0.758, "shares": 198900, "buy_time": "2026-08-18" },
+            { "cost": 0.751, "shares": -98900, "buy_time": "2026-08-20" },
+            { "cost": 0.731, "shares": 100000, "buy_time": "2026-08-20" },
+            { "cost": 0.687, "shares": 80000,  "buy_time": "2026-08-25" },
+            { "cost": 0.711, "shares": -60000, "buy_time": "2026-08-25" },
             { "cost": 0.719, "shares": -72900, "buy_time": "2026-08-26" }
           ]
         }
