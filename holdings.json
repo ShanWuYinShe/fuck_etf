@@ -8,7 +8,8 @@
           "name": "科创芯片ETF嘉实",
           "batches": [
             { "cost": 1.323, "shares": 54500, "buy_time": "2026-08-13" },
-            { "cost": 1.150, "shares": 18100, "buy_time": "2026-08-24" }
+            { "cost": 1.150, "shares": 18100, "buy_time": "2026-08-24" },
+            { "cost": 1.155, "shares": -24200, "buy_time": "2026-08-26" }
           ]
         },
         {
@@ -27,7 +28,8 @@
             { "cost": 0.753, "shares": 40000, "buy_time": "2026-08-18" },
             { "cost": 0.679, "shares": -40000, "buy_time": "2026-08-21" },
             { "cost": 0.656, "shares": 40000, "buy_time": "2026-08-24" },
-            { "cost": 0.656, "shares": -20000, "buy_time": "2026-08-25" }
+            { "cost": 0.656, "shares": -20000, "buy_time": "2026-08-25" },
+            { "cost": 0.655, "shares": -10000, "buy_time": "2026-08-26" }
           ]
         },
         {
@@ -35,7 +37,9 @@
           "name": "半导体设备ETF国泰",
           "batches": [
             { "cost": 0.748, "shares": 198900, "buy_time": "2026-08-18" },
-            { "cost": 0.687, "shares": 80000, "buy_time": "2026-08-25" }
+            { "cost": 0.687, "shares": 80000, "buy_time": "2026-08-25" },
+            { "cost": 0.687, "shares": 80000, "buy_time": "2026-08-25" },
+            { "cost": 0.719, "shares": -72900, "buy_time": "2026-08-26" }
           ]
         }
       ]
