@@ -137,7 +137,7 @@ def read_codes(cli_codes):
     return codes
 
 
-PER_CODE_PREFIXES = ("day_", "week_", "month_", "minute_", "fund_", "holdings_")
+PER_CODE_PREFIXES = ("day_", "week_", "month_", "minute_", "etf_meta_", "top_holdings_")
 
 
 def cleanup_cache(codes):
@@ -173,7 +173,7 @@ NEWS_RAW = [
      ["https://flash-api.jin10.com/get_flash_list?channel=-8200&vip=1&max_time=0"],
      8, 2, {"x-app-id": "bVBF4FyRTn5NJF5n", "x-version": "1.0.0",
             "x-requested-with": "XMLHttpRequest", "Accept-Encoding": "gzip"}),
-    ("news.json",
+    ("news_sina.json",
      ["https://zhibo.sina.com.cn/api/zhibo/feed?page=1&page_size=30&zhibo_id=152"],
      6, 2, None),
     ("news_eastmoney.txt",
@@ -185,7 +185,7 @@ NEWS_RAW = [
     ("news_wallstcn.json",
      ["https://api-one.wallstcn.com/apiv1/content/lives?channel=global-channel&limit=30"],
      8, 2, None),
-    ("news_163.txt",
+    ("news_netease.txt",
      ["https://money.163.com/special/00259BVP/news_flow_index.js"],
      10, 1, None),
     ("news_sina_roll.json",
@@ -222,7 +222,7 @@ def _read_raw(name):
 def parse_news_sina_zhibo():
     items = []
     try:
-        d = json.loads(_read_raw("news.json"))
+        d = json.loads(_read_raw("news_sina.json"))
         for it in (d.get("result", {}).get("data", {}).get("feed", {}).get("list") or []):
             t = it.get("rich_text") or ""
             if not t:
@@ -284,10 +284,10 @@ def parse_news_wallstcn():
     return items
 
 
-def parse_news_163():
+def parse_news_netease():
     items = []
     try:
-        t = _read_raw("news_163.txt")
+        t = _read_raw("news_netease.txt")
         body = t[t.find("["):t.rfind("]") + 1]  # 剥 data_callback( 前缀
         for it in json.loads(body):
             title = it.get("title") or ""
@@ -415,7 +415,7 @@ def merge_news():
     """七源（国内）+ 四源（国外，代理）解析合并：去重（标题前25字）、时间倒序、上限 150 条。"""
     items = []
     for fn in (parse_news_jin10, parse_news_sina_zhibo, parse_news_eastmoney,
-               parse_news_10jqka, parse_news_wallstcn, parse_news_163,
+               parse_news_10jqka, parse_news_wallstcn, parse_news_netease,
                parse_news_sina_roll, parse_news_google, parse_news_yahoo,
                parse_news_bbc, parse_news_marketwatch):
         items.extend(fn())
@@ -434,7 +434,7 @@ def fetch_holdings_ann(codes):
     覆盖业绩/回购/增减持/重组等一手公告，解决个股公告滞后于快讯的问题。"""
     stocks = {}
     for c in codes:
-        p = os.path.join(DATA_DIR, f"holdings_{c}.json")
+        p = os.path.join(DATA_DIR, f"top_holdings_{c}.json")
         if not os.path.exists(p):
             continue
         try:
@@ -518,15 +518,15 @@ def fetch_global(codes):
     qt_codes = ",".join(market_of(c) + c for c in codes)
 
     # 1/2. 实时行情：腾讯主源 + 新浪备用
-    fetch_save("realtime.txt", [f"https://qt.gtimg.cn/q={qt_codes}"], encoding="gbk")
-    fetch_save("realtime_sina.txt",
+    fetch_save("etf_realtime_qq.txt", [f"https://qt.gtimg.cn/q={qt_codes}"], encoding="gbk")
+    fetch_save("etf_realtime_sina.txt",
                [f"https://hq.sinajs.cn/list={qt_codes}"],
                headers={"Referer": "https://finance.sina.com.cn"}, encoding="gbk")
 
     # 2.5 折溢价（IOPV）：解析腾讯字段 [78]（盘中实时参考净值），跨境/商品类溢价风险提示用
-    iopv_path = os.path.join(DATA_DIR, "realtime_iopv.json")
+    iopv_path = os.path.join(DATA_DIR, "etf_iopv.json")
     try:
-        with open(os.path.join(DATA_DIR, "realtime.txt"), encoding="utf-8") as f:
+        with open(os.path.join(DATA_DIR, "etf_realtime_qq.txt"), encoding="utf-8") as f:
             qt_raw = f.read()
         iopv_rows = []
         for line in qt_raw.strip().split(";"):
@@ -544,7 +544,7 @@ def fetch_global(codes):
         if iopv_rows:
             with open(iopv_path, "w", encoding="utf-8") as f:
                 f.write(json.dumps(iopv_rows, ensure_ascii=False))
-            _record("realtime_iopv.json", "ok")
+            _record("etf_iopv.json", "ok")
         elif os.path.exists(iopv_path):
             os.remove(iopv_path)
     except Exception as e:
@@ -557,7 +557,7 @@ def fetch_global(codes):
     batches = [secs[:5], secs[5:]] if len(secs) > 5 else [secs]
     em_fields = "f2,f3,f4,f5,f6,f12,f14,f15,f16,f17,f18,f62"
     for i, batch in enumerate(batches, start=1):
-        name = "realtime_eastmoney.json" if i == 1 else "realtime_eastmoney_2.json"
+        name = "etf_realtime_em.json" if i == 1 else "etf_realtime_em_2.json"
         q = ",".join(batch)
         fetch_save(name, [
             f"https://push2delay.eastmoney.com/api/qt/ulist.np/get?secids={q}&fields={em_fields}",
@@ -588,9 +588,9 @@ def fetch_global(codes):
         ])
 
     # 6.1 外盘与汇率
-    fetch_save("global_realtime.txt",
+    fetch_save("overseas_realtime_qq.txt",
                ["https://qt.gtimg.cn/q=usDJI,usIXIC,usINX,hkHSI,hkHSCEI"], encoding="gbk")
-    fetch_save("global_sina.txt",
+    fetch_save("overseas_realtime_sina.txt",
                ["https://hq.sinajs.cn/list=hf_GC,hf_CL,hf_ES,hf_NQ,hf_YM,fx_susdcny"],
                headers={"Referer": "https://finance.sina.com.cn"}, encoding="gbk")
 
@@ -600,13 +600,13 @@ def fetch_one_etf(code):
     secid = em_secid(code)
     fund_fields = "f57,f58,f62,f84,f85"
     # ETF 份额/规模 + 主力资金 —— push2delay 优先
-    fetch_save(f"fund_{code}.json", [
+    fetch_save(f"etf_meta_{code}.json", [
         f"https://push2delay.eastmoney.com/api/qt/stock/get?secid={secid}&fields={fund_fields}",
         f"https://push2.eastmoney.com/api/qt/stock/get?secid={secid}&fields={fund_fields}",
         f"http://push2.eastmoney.com/api/qt/stock/get?secid={secid}&fields={fund_fields}",
     ])
     # 季报重仓股
-    fetch_save(f"holdings_{code}.json", [
+    fetch_save(f"top_holdings_{code}.json", [
         "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition"
         f"?FCODE={code}&deviceid=Wap&plat=Wap&product=EFund&version=6.2.8",
     ])
