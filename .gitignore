@@ -7,3 +7,17 @@ __pycache__/
 .DS_Store
 .worktrees
 *.swp
+# 临时粘贴/截图（此前曾被误跟踪）
+_tmp*.png
+.tmp*.png
+*.tmp.png
+/tmp/
+# 本地日志（自动化任务产生，见 automations/install.py）
+.etf_logs/
+*.log
+# 编辑器/系统
+*.swp
+*.swo
+*~
+.vscode/
+.idea/

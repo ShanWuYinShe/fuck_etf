@@ -12,9 +12,9 @@
 自选列表的标的级缓存文件。每轮写 _manifest.json 记录各文件采集状态（ok/fail），fail 项无数据文件。
 
 用法：
-    python3 fetch_etf_data.py              # 读取 etf_list.txt
-    python3 fetch_etf_data.py 512400 159992
-    python3 fetch_etf_data.py --news-only  # 只刷消息面（快讯+重仓股公告），盘后快速刷新用
+    python3 scripts/fetch_etf_data.py              # 读取 config/etf_list.txt（兼容根目录 etf_list.txt）
+    python3 scripts/fetch_etf_data.py 512400 159992
+    python3 scripts/fetch_etf_data.py --news-only  # 只刷消息面（快讯+重仓股公告），盘后快速刷新用
 """
 
 import datetime
@@ -31,8 +31,32 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib import request
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def _find_project_root(start):
+    """自适应项目根：兼容脚本在根目录或 scripts/ 下，以及配置在 config/ 或根目录"""
+    cur = os.path.dirname(os.path.abspath(start)) if os.path.isfile(start) else os.path.abspath(start)
+    # 若在 scripts/ 下，根为其父目录
+    if os.path.basename(cur) == "scripts":
+        return os.path.dirname(cur)
+    # 向上查找直到含 .git 或 etf_list.txt
+    for _ in range(4):
+        if os.path.exists(os.path.join(cur, ".git")) or os.path.exists(os.path.join(cur, "etf_list.txt")) or os.path.exists(os.path.join(cur, "config", "etf_list.txt")):
+            return cur
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    return os.path.dirname(os.path.abspath(__file__)) if os.path.basename(os.path.dirname(os.path.abspath(__file__))) != "scripts" else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+BASE_DIR = _find_project_root(__file__)
 DATA_DIR = os.path.join(BASE_DIR, ".workwork", "data")
+
+
+def _config_path(name):
+    """配置优先 config/，回退根目录（兼容旧位置）"""
+    for p in (os.path.join(BASE_DIR, "config", name), os.path.join(BASE_DIR, name)):
+        if os.path.exists(p):
+            return p
+    return os.path.join(BASE_DIR, "config", name) if os.path.exists(os.path.join(BASE_DIR, "config")) else os.path.join(BASE_DIR, name)
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
 
@@ -104,7 +128,8 @@ def read_codes(cli_codes):
     if cli_codes:
         return [c for c in re.split(r"[,\s]+", cli_codes) if re.fullmatch(r"\d{6}", c)]
     codes = []
-    with open(os.path.join(BASE_DIR, "etf_list.txt"), encoding="utf-8") as f:
+    cfg = _config_path("etf_list.txt")
+    with open(cfg, encoding="utf-8") as f:
         for line in f:
             m = re.search(r"\d{6}", line)
             if m:

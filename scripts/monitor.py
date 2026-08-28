@@ -3,9 +3,9 @@
 """盘中数据监控：每 2 分钟采集一轮（仅采集，不分析）。
 
 用法：
-    python3 monitor.py            # 盘中自动循环（午休与收盘后暂停）
-    python3 monitor.py --once     # 只采集一轮
-    python3 monitor.py --until-close  # 供计划任务使用：9:25 启动，15:05 自动结束
+    python3 scripts/monitor.py            # 盘中自动循环（午休与收盘后暂停）
+    python3 scripts/monitor.py --once     # 只采集一轮
+    python3 scripts/monitor.py --until-close  # 供计划任务使用：9:25 启动，15:05 自动结束
 """
 
 import datetime
@@ -15,8 +15,8 @@ import sys
 import time
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FETCH = [sys.executable, os.path.join(BASE_DIR, "fetch_etf_data.py")]
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+FETCH = [sys.executable, os.path.join(SCRIPT_DIR, "fetch_etf_data.py")]
 
 
 def hhmm(now=None):

@@ -6,18 +6,17 @@ A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断�
 
 ## 常用命令（跨平台，仅需 Python 3）
 
-- 采集：`python3 fetch_etf_data.py`（实时三源、分时、日K、十一源快讯并行合并 [国内7源直连+国外4源走代理，代理在脚本顶部 PROXY 配置] 与重仓股公告、指数、板块、外盘、ETF 份额/重仓 → `.workwork/data/`）；盘后只刷消息面：`python3 fetch_etf_data.py --news-only`
-- 晨间预案：`python3 morning_plan.py`（只采集数据，提示交给 AI 分析）
-- 盘中监控：`python3 monitor.py`（`--once` 单轮 / `--until-close` 盘中会话，仅采集）
-- 自动化：`python3 automations/install.py`（macOS→launchd、Linux→crontab、Windows→任务计划程序）、`python3 automations/uninstall.py`
+- 采集：`python3 scripts/fetch_etf_data.py`（实时三源、分时、日K、十一源快讯并行合并 [国内7源直连+国外4源走代理，代理在脚本顶部 PROXY 配置] 与重仓股公告、指数、板块、外盘、ETF 份额/重仓 → `.workwork/data/`）；盘后只刷消息面：`python3 scripts/fetch_etf_data.py --news-only`
+- 晨间预案：`python3 scripts/morning_plan.py`（只采集数据，提示交给 AI 分析）
+- 盘中监控：`python3 scripts/monitor.py`（`--once` 单轮 / `--until-close` 盘中会话，仅采集）
 
-所有脚本均用 Python 标准库实现，可在任意目录、任意平台（Windows/macOS/Linux）运行。
+所有脚本均在 `scripts/` 目录，用 Python 标准库实现，可在任意目录、任意平台（Windows/macOS/Linux）运行。配置在 `config/` 目录（`holdings.json`/`etf_list.txt`），兼容根目录旧位置。
 
 ## 数据与配置
 
 - `.workwork/` 全部为本机数据（已 gitignore，不入库）：`data/` 只存**最近一轮**采集结果，**不保留历史数据**——采集失败即删旧文件（`_manifest.json` 状态仅 ok/fail），每轮启动自动清理已移出自选的标的缓存；快讯每轮实时获取，AI 分析前若快讯滞后应先 `--news-only` 刷新。
-- **入库数据源（git 管理，可跨设备同步）**：`holdings.json`（持仓唯一数据源，模板 `holdings.example.json`）与 `etf_list.txt`（自选标的清单，每行一个 6 位代码）。改持仓/成本/自选只改这两个文件，AI 每次分析前必须读取它们，不依赖提示词内旧数据。
-- 提示词 `PROMPT_full.md` **只含策略规则**（数据源说明、消息面与操作纪律），不内嵌持仓/标的/行情数据；AI 需自行读取 `holdings.json` 与 `etf_list.txt` 获取最新持仓与自选列表。
+- **入库数据源（git 管理，可跨设备同步）**：`config/holdings.json`（持仓唯一数据源，模板 `config/holdings.example.json`）与 `config/etf_list.txt`（自选标的清单，每行一个 6 位代码），兼容根目录旧位置。改持仓/成本/自选只改这两个文件，AI 每次分析前必须读取它们，不依赖提示词内旧数据。
+- 提示词 `PROMPT_full.md` **只含策略规则**（数据源说明、消息面与操作纪律），不内嵌持仓/标的/行情数据；AI 需自行读取 `config/holdings.json` 与 `config/etf_list.txt` 获取最新持仓与自选列表。
 
 ## 约束
 
@@ -43,8 +42,8 @@ A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断�
 
 "搜集消息面 + 结合持仓/自选 + 分析未来几日走势 + 给今日最优操作" 每轮按此顺序执行（脚本只采集、AI 只分析，禁止自动下单）：
 
-1. **采集**：`python3 fetch_etf_data.py`（盘后只刷消息面用 `--news-only`；午休 11:30-13:00、收盘后暂停采集）。
-2. **读持仓/自选**：`holdings.json` + `etf_list.txt`（唯一数据源，禁止用旧快照；持仓成本/份额/可卖以该文件为准）。
+1. **采集**：`python3 scripts/fetch_etf_data.py`（盘后只刷消息面用 `--news-only`；午休 11:30-13:00、收盘后暂停采集）。
+2. **读持仓/自选**：`config/holdings.json` + `config/etf_list.txt`（唯一数据源，兼容根目录，禁止用旧快照；持仓成本/份额/可卖以该文件为准）。
 3. **消息面前置**：读 `news_merged.json`（十一源合并去重，取最新 30 条）+ `news_ann.json`（重仓股近 3 天公告）；滞后先 `--news-only` 刷新；按 PROMPT_full 思路对持仓/待交易品种做主动联网搜索补充（半导体/黄金/创新药/通信等）。
 4. **大盘环境判定（8.1）**：`index_realtime.txt` + `index_kline_*.json` 算 20 日线 → 正常/谨慎/保守，写在输出最上方。
 5. **趋势前瞻（5.3）**：对每只持仓/自选给 **2–5 日预判**（方向 / 低吸区 / 目标区 / 时间窗 / 证伪信号），以「消息面 + 趋势结构 + 板块强度」三要素推导，买卖方向由前瞻决定、盘面只定择时。
