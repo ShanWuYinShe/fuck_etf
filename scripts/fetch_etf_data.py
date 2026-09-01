@@ -26,6 +26,7 @@ import re
 import sys
 import threading
 import time
+import traceback
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib import request
@@ -94,9 +95,46 @@ def _record(name, status):
         _manifest[name] = status
 
 
+def _default_content_check(name, text):
+    """内容结构校验：接口改版/风控页「看似成功实则无效」时拒收，触发换源与重试。
+    校验失败返回原因字符串，通过返回 None。"""
+    if name.endswith((".json", ".txt")) is False:
+        return None
+    if name.startswith(("day_", "week_", "month_", "minute_")):
+        try:
+            d = json.loads(text)
+        except ValueError:
+            return "非 JSON"
+        inner = (d.get("data") or {})
+        # 腾讯行情包内层键为 sh{code}/sz{code}，K线在 day/qfqday(/week/month) 之一
+        if not isinstance(inner, dict) or not inner:
+            return "data 为空或非 dict"
+        for v in inner.values():
+            if isinstance(v, dict) and any(k in v for k in ("day", "qfqday", "week", "month", "data", "qt")):
+                break
+        else:
+            return "内层缺 day/qfqday/data 等行情键"
+    elif name.startswith("etf_realtime_"):
+        # 腾讯为 ~ 分隔、东财为 JSON diff、新浪为 hq_str_ 变量格式，三者任一即可
+        if ("~" not in text) and ('"diff"' not in text) and ("hq_str_" not in text):
+            return "无行情字段（~ / diff / hq_str_ 均缺失）"
+    elif name in ("index_realtime.txt", "overseas_realtime_qq.txt"):
+        if "~" not in text:
+            return "无 ~ 分隔行情字段"
+    elif name.startswith("index_kline_"):
+        try:
+            d = json.loads(text)
+        except ValueError:
+            return "非 JSON"
+        ks = ((d.get("data") or {}).get("klines")) or []
+        if not ks:
+            return "data.klines 为空"
+    return None
+
+
 def fetch_save(name, urls, timeout=6, headers=None, encoding=None, retries=3, proxy=None):
     """依次尝试多个 URL，最多 retries 轮（指数退避 0.8s / 1.6s）；
-    拒绝空内容、HTML 错误页与东财 data:null 限流响应。
+    拒绝空内容、HTML 错误页、东财 data:null 限流响应，以及结构不符的数据（_default_content_check）。
     返回 "ok"（成功）/"fail"（失败，同时删除旧缓存，不保留历史数据）。
     """
     for attempt in range(retries):
@@ -109,6 +147,14 @@ def fetch_save(name, urls, timeout=6, headers=None, encoding=None, retries=3, pr
                 continue
             head = text.lstrip()[:200].lower()
             if head.startswith(("<html", "<!doctype")) or '"data":null' in text:
+                continue
+            bad = None
+            try:
+                bad = _default_content_check(name, text)
+            except Exception:
+                bad = None  # 校验器自身异常不阻断采集
+            if bad:
+                print(f"警告：{name} 内容结构校验未通过（{bad}），尝试下一数据源")
                 continue
             with open(os.path.join(DATA_DIR, name), "w", encoding="utf-8") as f:
                 f.write(text)
@@ -219,19 +265,48 @@ def _read_raw(name):
         return f.read()
 
 
+def _dicts_in(obj):
+    """展平 obj 内所有层级的 dict。"""
+    if isinstance(obj, dict):
+        yield obj
+        for v in obj.values():
+            yield from _dicts_in(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _dicts_in(v)
+
+
+def _find_lists(obj, *keys, must_have=None):
+    """递归查找所有「键名为 keys 之一、值为 list」的列表，展平返回其中全部 dict。
+    must_have: 仅保留含该 key 的条目（避免抓到同名但语义不同的列表）。"""
+    out = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in keys and isinstance(v, list):
+                out.extend(x for x in _dicts_in(v)
+                           if must_have is None or must_have in x)
+            else:
+                out.extend(_find_lists(v, *keys, must_have=must_have))
+    elif isinstance(obj, list):
+        for v in obj:
+            out.extend(_find_lists(v, *keys, must_have=must_have))
+    return out
+
+
 def parse_news_sina_zhibo():
     items = []
     try:
         d = json.loads(_read_raw("news_sina.json"))
-        for it in (d.get("result", {}).get("data", {}).get("feed", {}).get("list") or []):
+        # must_have 锁定含 rich_text 的条目列表，避免抓到 top/focus 等同名 list
+        for it in _find_lists(d, "list", must_have="rich_text"):
             t = it.get("rich_text") or ""
             if not t:
                 continue
             m = re.match(r"^【(.+?)】", t)
             items.append({"time": _norm_time(it.get("create_time")), "source": "新浪7x24",
                           "title": m.group(1) if m else t[:40], "text": t, "url": ""})
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"警告：新浪7x24 解析异常：{type(e).__name__}: {e}")
     return items
 
 
@@ -240,15 +315,16 @@ def parse_news_eastmoney():
     try:
         t = _read_raw("news_eastmoney.txt")
         body = t[t.find("{"):t.rfind("}") + 1]  # 剥 var ajaxResult= 前缀
-        for it in json.loads(body).get("LivesList") or []:
+        # LivesList 是「键名为 LivesList 的 list」，用键名递归查找而非固定路径
+        for it in _find_lists(json.loads(body), "LivesList"):
             title = it.get("title") or ""
             if not title:
                 continue
             items.append({"time": _norm_time(it.get("showtime")), "source": "东方财富",
                           "title": title, "text": it.get("digest") or title,
                           "url": it.get("url_unique") or ""})
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"警告：东方财富解析异常：{type(e).__name__}: {e}")
     return items
 
 
@@ -256,15 +332,18 @@ def parse_news_10jqka():
     items = []
     try:
         d = json.loads(_read_raw("news_10jqka.json"))
-        for it in d.get("data", {}).get("list") or []:
+        # data 可能为 dict（含 list）也可能直接是 list（接口偶发改版）
+        data = d.get("data")
+        cands = data if isinstance(data, list) else _find_lists(d, "list")
+        for it in cands:
             title = it.get("title") or ""
             if not title:
                 continue
             items.append({"time": _norm_time(it.get("ctime")), "source": "同花顺",
                           "title": title, "text": it.get("summary") or title,
                           "url": it.get("url") or it.get("url_m") or ""})
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"警告：同花顺解析异常：{type(e).__name__}: {e}")
     return items
 
 
@@ -272,15 +351,15 @@ def parse_news_wallstcn():
     items = []
     try:
         d = json.loads(_read_raw("news_wallstcn.json"))
-        for it in d.get("data", {}).get("items") or []:
+        for it in _find_lists(d, "items"):
             title = it.get("title") or ""
             if not title:
                 continue
             items.append({"time": _norm_time(it.get("display_time")), "source": "华尔街见闻",
                           "title": title, "text": it.get("content_text") or title,
                           "url": it.get("uri") or ""})
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"警告：华尔街见闻解析异常：{type(e).__name__}: {e}")
     return items
 
 
@@ -296,8 +375,8 @@ def parse_news_netease():
             items.append({"time": _norm_time(it.get("time")), "source": "网易7x24",
                           "title": title, "text": it.get("digest") or title,
                           "url": it.get("docurl") or ""})
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"警告：网易7x24 解析异常：{type(e).__name__}: {e}")
     return items
 
 
@@ -305,17 +384,15 @@ def parse_news_sina_roll():
     items = []
     try:
         d = json.loads(_read_raw("news_sina_roll.json"))
-        data = d.get("result", {}).get("data") or []
-        if isinstance(data, dict):
-            data = data.get("list") or []
-        for it in data:
+        # 兼容两种结构：result.data 为条目列表（现行）或 result.data.list 包裹（改版后）
+        for it in _find_lists(d, "data", "list", must_have="title"):
             title = it.get("title") or ""
             if not title:
                 continue
             items.append({"time": _norm_time(it.get("ctime")), "source": "新浪滚动",
                           "title": title, "text": title, "url": it.get("url") or ""})
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"警告：新浪滚动解析异常：{type(e).__name__}: {e}")
     return items
 
 
@@ -324,7 +401,7 @@ def parse_news_jin10():
     items = []
     try:
         d = json.loads(_read_raw("news_jin10.json"))
-        for it in d.get("data") or []:
+        for it in _find_lists(d, "data"):
             dd = it.get("data") or {}
             content = dd.get("content") or ""
             if not content:
@@ -333,8 +410,8 @@ def parse_news_jin10():
             items.append({"time": _norm_time(it.get("time")), "source": "金十",
                           "title": dd.get("title") or (m.group(1) if m else content[:40]),
                           "text": content, "url": dd.get("source_link") or ""})
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"警告：金十解析异常：{type(e).__name__}: {e}")
     return items
 
 
@@ -390,8 +467,8 @@ def parse_news_rss(fname, source):
                           "source": source, "title": title,
                           "text": it.findtext("description") or title,
                           "url": it.findtext("link") or ""})
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"警告：RSS({source}) 解析异常：{type(e).__name__}: {e}")
     return items
 
 
@@ -411,14 +488,35 @@ def parse_news_marketwatch():
     return parse_news_rss("news_marketwatch.json", "MarketWatch")
 
 
+# (解析函数, 原始文件名, 中文名) —— merge_news 表驱动遍历，新增源只需在此登记
+NEWS_SOURCES = [
+    (parse_news_jin10, "news_jin10.json", "金十"),
+    (parse_news_sina_zhibo, "news_sina.json", "新浪7x24"),
+    (parse_news_eastmoney, "news_eastmoney.txt", "东方财富"),
+    (parse_news_10jqka, "news_10jqka.json", "同花顺"),
+    (parse_news_wallstcn, "news_wallstcn.json", "华尔街见闻"),
+    (parse_news_netease, "news_netease.txt", "网易7x24"),
+    (parse_news_sina_roll, "news_sina_roll.json", "新浪滚动"),
+    (parse_news_google, "news_google.json", "Google新闻"),
+    (parse_news_yahoo, "news_yahoo.json", "Yahoo财经"),
+    (parse_news_bbc, "news_bbc.json", "BBC商业"),
+    (parse_news_marketwatch, "news_marketwatch.json", "MarketWatch"),
+]
+
+
 def merge_news():
-    """七源（国内）+ 四源（国外，代理）解析合并：去重（标题前25字）、时间倒序、上限 150 条。"""
+    """七源（国内）+ 四源（国外，代理）解析合并：去重（标题前25字）、时间倒序、上限 150 条。
+    任一源解析为 0 条时打印告警——数据源改版（JSON key 漂移）不再静默丢失。"""
     items = []
-    for fn in (parse_news_jin10, parse_news_sina_zhibo, parse_news_eastmoney,
-               parse_news_10jqka, parse_news_wallstcn, parse_news_netease,
-               parse_news_sina_roll, parse_news_google, parse_news_yahoo,
-               parse_news_bbc, parse_news_marketwatch):
-        items.extend(fn())
+    for fn, fname, cn_name in NEWS_SOURCES:
+        parsed = fn()
+        if not parsed:
+            raw = _read_raw(fname)
+            reason = ("原始文件缺失（采集失败，见上方 fetch_save 警告）" if not raw.strip()
+                      else "解析出 0 条（接口结构可能已改版，请检查解析器）")
+            print(f"警告：消息源 {cn_name} 解析异常：{reason}")
+        else:
+            items.extend(parsed)
     seen, uniq = set(), []
     for it in sorted(items, key=lambda x: x["time"] or "", reverse=True):
         k = (it["title"] or "")[:25]
@@ -439,11 +537,13 @@ def fetch_holdings_ann(codes):
             continue
         try:
             d = json.load(open(p, encoding="utf-8"))
-            for s in d.get("Datas", {}).get("fundStocks") or []:
+            # 递归定位 fundStocks 列表并展平（_find_lists 直接返回条目 dict，不依赖 Datas 固定层级）
+            for s in _find_lists(d, "fundStocks"):
                 g = str(s.get("GPDM") or "")
                 if g.isdigit() and len(g) == 6:
                     stocks.setdefault(g, s.get("GPJC") or "")
-        except Exception:
+        except Exception as e:
+            print(f"重仓股解析 {code} 失败：{type(e).__name__}: {e}")
             continue
     results = []
     cutoff = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
@@ -461,8 +561,8 @@ def fetch_holdings_ann(codes):
                     if date >= cutoff:
                         results.append({"code": code, "name": name, "date": date,
                                         "title": it.get("title") or ""})
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"公告采集 {name}({code}) 失败：{type(e).__name__}: {e}")
 
         with ThreadPoolExecutor(max_workers=8) as ex:
             list(ex.map(one, list(stocks.items())[:60]))
