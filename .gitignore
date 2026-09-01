@@ -6,6 +6,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .worktrees
+.workbuddy
 *.swp
 # 临时粘贴/截图（此前曾被误跟踪）
 _tmp*.png
