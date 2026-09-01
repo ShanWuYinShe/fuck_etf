@@ -112,8 +112,8 @@
 ├── index_kline_sh.json         # 上证近 30 日K
 ├── index_kline_sz.json         # 创指近 30 日K
 │
-├── boards_up.json              # 涨幅榜板块
-├── boards_down.json            # 跌幅榜板块
+├── boards_up.json              # 行业板块榜前 10 强（f14 名称/f3 涨跌幅/f62 主力净流入）
+├── boards_down.json            # 行业板块榜前 10 弱（同上）
 │
 ├── overseas_realtime_qq.txt    # 外盘-腾讯（道指/纳指/标普/恒指/恒科）
 ├── overseas_realtime_sina.txt  # 外盘-新浪（黄金/原油/汇率）
