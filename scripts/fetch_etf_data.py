@@ -126,9 +126,17 @@ def _default_content_check(name, text):
             d = json.loads(text)
         except ValueError:
             return "非 JSON"
+        # 双源校验：腾讯 fqkline 为 data.{sh|sz}{code}.day/qfqday；东财为 data.klines。
+        # 东财 push2his 曾长期返回 503/RemoteDisconnected（2026-09-02 实测），腾讯为主源，
+        # 故此处必须兼容两种结构，否则会把可用的腾讯数据误判为改版而拒收。
+        inner = (d.get("data") or {})
+        if isinstance(inner, dict) and inner:
+            for v in inner.values():
+                if isinstance(v, dict) and any(k in v for k in ("day", "qfqday")):
+                    return None
         ks = ((d.get("data") or {}).get("klines")) or []
         if not ks:
-            return "data.klines 为空"
+            return "data.klines 为空（腾讯 day/qfqday 亦缺失）"
     return None
 
 
@@ -421,16 +429,19 @@ def parse_news_cnbc():
 
 
 # ---- 国外新闻源（走 PROXY 代理；RSS 免费无 key） ----
-# 实测（2026-08-13）：Google News / Yahoo / BBC / MarketWatch / CNBC / Investing 走代理均 1s 级可用；
-# Reuters(404) / FT / Bloomberg / AP / Economist(SSL) 不可用，WSJ 内容陈旧，均弃用。
+# 实测（2026-09-02 复测）：Google News(中文) / Google News(英文) / MarketWatch / CNBC 可用；
+# Yahoo(403 反爬) 与 BBC(SSL 握手超时) 已失效；WSJ(feeds.a.dj.com) 响应 200 但 pubDate 冻结在
+# 2025-01-27（死源，内容陈旧会污染时间倒序），已弃用。
+# Reuters(404)/FT/Bloomberg/AP/Economist/Investing(403)/SCMP(SSL 超时) 不可用，均弃用。
+# 注：RSS 死源（200 但日期陈旧）无法靠 HTTP 层识别，统一由 merge_news 的 MAX_NEWS_AGE_DAYS 时效护栏拦截。
 NEWS_FOREIGN_RAW = [
     # (文件名, [URL], timeout, retries, headers)
     ("news_google.json",
      ["https://news.google.com/rss?hl=zh-CN&gl=CN&ceid=CN:zh-Hans"], 10, 1, None),
-    ("news_yahoo.json",
-     ["https://finance.yahoo.com/news/rssindex"], 10, 1, None),
-    ("news_bbc.json",
-     ["https://feeds.bbci.co.uk/news/business/rss.xml"], 10, 1, None),
+    ("news_google_en.json",
+     ["https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"], 10, 1, None),
+    ("news_cnbc.json",
+     ["https://www.cnbc.com/id/100003114/device/rss/rss.html"], 10, 1, None),
     ("news_marketwatch.json",
      ["https://feeds.content.dowjones.io/public/rss/mw_topstories"], 10, 1, None),
 ]
@@ -476,12 +487,12 @@ def parse_news_google():
     return parse_news_rss("news_google.json", "Google新闻")
 
 
-def parse_news_yahoo():
-    return parse_news_rss("news_yahoo.json", "Yahoo财经")
+def parse_news_google_en():
+    return parse_news_rss("news_google_en.json", "Google英文")
 
 
-def parse_news_bbc():
-    return parse_news_rss("news_bbc.json", "BBC商业")
+def parse_news_cnbc():
+    return parse_news_rss("news_cnbc.json", "CNBC")
 
 
 def parse_news_marketwatch():
@@ -498,15 +509,19 @@ NEWS_SOURCES = [
     (parse_news_netease, "news_netease.txt", "网易7x24"),
     (parse_news_sina_roll, "news_sina_roll.json", "新浪滚动"),
     (parse_news_google, "news_google.json", "Google新闻"),
-    (parse_news_yahoo, "news_yahoo.json", "Yahoo财经"),
-    (parse_news_bbc, "news_bbc.json", "BBC商业"),
+    (parse_news_google_en, "news_google_en.json", "Google英文"),
+    (parse_news_cnbc, "news_cnbc.json", "CNBC"),
     (parse_news_marketwatch, "news_marketwatch.json", "MarketWatch"),
 ]
 
+# 时效护栏：RSS 死源可能返回 200 但 pubDate 冻结在数月前（如 WSJ 冻结于 2025-01-27），
+# 仅靠 HTTP 状态无法识别，故合并时丢弃超过该天数的条目，防止陈旧新闻占据「最新 30 条」。
+MAX_NEWS_AGE_DAYS = 3
+
 
 def merge_news():
-    """七源（国内）+ 四源（国外，代理）解析合并：去重（标题前25字）、时间倒序、上限 150 条。
-    任一源解析为 0 条时打印告警——数据源改版（JSON key 漂移）不再静默丢失。"""
+    """七源（国内）+ 四源（国外，代理）解析合并：时效过滤、去重（标题前25字）、
+    时间倒序、上限 150 条。任一源解析为 0 条时打印告警——数据源改版（JSON key 漂移）不再静默丢失。"""
     items = []
     for fn, fname, cn_name in NEWS_SOURCES:
         parsed = fn()
@@ -517,6 +532,23 @@ def merge_news():
             print(f"警告：消息源 {cn_name} 解析异常：{reason}")
         else:
             items.extend(parsed)
+    # 时效护栏：丢弃陈旧条目（RSS 死源 pubDate 可能冻结在数月前）
+    cutoff_ts = (datetime.datetime.now() - datetime.timedelta(days=MAX_NEWS_AGE_DAYS)).timestamp()
+    fresh, stale = [], 0
+    for it in items:
+        t = it.get("time") or ""
+        try:
+            ts = datetime.datetime.strptime(t[:19], "%Y-%m-%d %H:%M:%S").timestamp()
+        except ValueError:
+            fresh.append(it)  # 时间不可解析时不误杀，保留由人工/AI 判断
+            continue
+        if ts >= cutoff_ts:
+            fresh.append(it)
+        else:
+            stale += 1
+    if stale:
+        print(f"提示：已过滤 {stale} 条超过 {MAX_NEWS_AGE_DAYS} 天的陈旧条目（RSS 源可能已停更）")
+    items = fresh
     seen, uniq = set(), []
     for it in sorted(items, key=lambda x: x["time"] or "", reverse=True):
         k = (it["title"] or "")[:25]
@@ -670,13 +702,17 @@ def fetch_global(codes):
 
     # 5. 大盘指数：实时 + 近 30 日日K（含成交额；30 日用于计算 20 日线，供 8.1 大盘环境分级）
     fetch_save("index_realtime.txt", ["https://qt.gtimg.cn/q=sh000001,sz399006"], encoding="gbk")
+    # 指数日K：腾讯 fqkline 为主源（实测 2026-09-02 东财 push2his 全线 503/RemoteDisconnected），
+    # 东财为备用。腾讯 lmt 取 45 条：覆盖 20 日线所需窗口，并留出容错余量。
     kline_fields = ("fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,"
-                    "f58,f59,f60,f61&klt=101&fqt=0&end=20500101&lmt=30")
-    for name, secid in (("index_kline_sh.json", "1.000001"), ("index_kline_sz.json", "0.399006")):
+                    "f58,f59,f60,f61&klt=101&fqt=0&end=20500101&lmt=45")
+    for name, secid, tx_code in (("index_kline_sh.json", "1.000001", "sh000001"),
+                                 ("index_kline_sz.json", "0.399006", "sz399006")):
         fetch_save(name, [
+            f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={tx_code},day,,,45,qfq",
             f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={secid}&{kline_fields}",
             f"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={secid}&{kline_fields}",
-        ])
+        ], timeout=15)
 
     # 6. 行业板块榜（最强/最弱）—— push2delay 优先
     board_q = ("pn=1&pz=10&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2+f:!50&fields=f3,f12,f14,f62")
