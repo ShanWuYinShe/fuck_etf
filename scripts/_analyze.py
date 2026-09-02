@@ -1,7 +1,38 @@
 # -*- coding: utf-8 -*-
-import json, os, sys
+import json, os, re
 
-D = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.workwork', 'data')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+D = os.path.join(ROOT, '.workwork', 'data')
+
+
+def _config_path(name):
+    """配置优先 config/，回退根目录（兼容旧位置），与 fetch_etf_data.py 一致"""
+    for p in (os.path.join(ROOT, 'config', name), os.path.join(ROOT, name)):
+        if os.path.exists(p):
+            return p
+    return os.path.join(ROOT, name)
+
+
+def load_codes():
+    """标的清单唯一数据源 config/etf_list.txt（每行一个 6 位代码）；
+    名称取 etf_meta_{code}.json 的 f58，缺失/解析失败时回退代码本身。"""
+    codes = []
+    try:
+        with open(_config_path('etf_list.txt'), encoding='utf-8') as f:
+            for line in f:
+                m = re.search(r'\d{6}', line)
+                if m:
+                    codes.append(m.group())
+    except OSError:
+        pass
+    names = {}
+    for c in codes:
+        try:
+            with open(os.path.join(D, 'etf_meta_%s.json' % c), encoding='utf-8') as f:
+                names[c] = (json.load(f).get('data') or {}).get('f58') or c
+        except (OSError, ValueError):
+            names[c] = c
+    return [(c, names[c]) for c in codes]
 
 
 def ma(vals, n):
@@ -42,10 +73,14 @@ def load_day(code):
 
 def load_index_kline(fname):
     d = json.load(open(os.path.join(D, fname), encoding='utf-8'))
-    hits = _find_kline_lists(d, 'klines')
+    # 双源适配：东财为 data.klines（行是 "date,open,close,high,low,volume,amount" 字符串），
+    # 腾讯为 data.{sh|sz}{code}.day/qfqday（行是 [date, open, close, high, low, volume] 列表）；
+    # 两源列序一致，按元素类型分派解析，与采集端 _default_content_check 的双源策略对齐。
+    hits = _find_kline_lists(d, 'klines', 'qfqday', 'day')
     if not hits:
-        raise KeyError('%s 中找不到 klines 列表，实际顶层 keys=%s' % (fname, list(d.keys())))
-    return [x.split(',') for x in hits[0][1]]
+        raise KeyError('%s 中找不到 klines/qfqday/day 列表，实际顶层 keys=%s'
+                       % (fname, list(d.keys())))
+    return [x.split(',') if isinstance(x, str) else x for x in hits[0][1]]
 
 
 print('=' * 78)
@@ -61,7 +96,8 @@ for f, nm in [('index_kline_sh.json', 'SH'), ('index_kline_sz.json', 'CYB')]:
     m5, m10, m20 = ma(closes[:-1], 5), ma(closes[:-1], 10), ma(closes[:-1], 20)
     m20_now = ma(closes, 20)
     m20_prev = sum(closes[-21:-1]) / 20
-    print('%s: last_close(8/31)=%.2f now(9/1 intraday)=%.2f' % (nm, closes[-2], closes[-1]))
+    print('%s: last_close(%s)=%.2f now(%s)=%.2f' %
+          (nm, ks[-2][0][5:], closes[-2], ks[-1][0][5:], closes[-1]))
     print('   MA5=%.2f MA10=%.2f MA20=%.2f (excl today) | MA20 incl today=%.2f | slope=%+.2f' %
           (m5, m10, m20, m20_now, m20_now - m20_prev))
     print('   vs MA20: %s (diff %+.2f, %+.2f%%)' %
@@ -70,13 +106,7 @@ for f, nm in [('index_kline_sh.json', 'SH'), ('index_kline_sz.json', 'CYB')]:
 
 print()
 print('=' * 78)
-codes = [
-    ('159992', '创新药ETF银华'), ('159516', '半导体设备ETF国泰'), ('588200', '科创芯片ETF嘉实'),
-    ('515880', '通信ETF国泰'), ('518880', '黄金ETF华安'), ('513630', '港股低波红利ETF摩根'),
-    ('159566', '储能电池ETF易方达'), ('159755', '电池ETF广发'), ('159611', '电力ETF广发'),
-    ('512400', '有色金属ETF南方'), ('562800', '稀有金属ETF嘉实'),
-]
-for c, nm in codes:
+for c, nm in load_codes():
     try:
         rows = load_day(c)
     except Exception as e:
@@ -101,7 +131,7 @@ for c, nm in codes:
     print('   10d range %.3f-%.3f | 20d range %.3f-%.3f' % (low10, high10, low20, high20))
     print('   close8: ' + ' '.join('%.3f' % x for x in closes[-8:]))
     print('   vol8(w): ' + ' '.join('%.0f' % (x / 1e4) for x in vols[-8:]))
-    print('   prev_day_vol/ma5vol=%.2fx | today_vol(10min)=%.0fw' % (vr, vols[-1] / 1e4))
+    print('   prev_day_vol/ma5vol=%.2fx | today_vol=%.0fw' % (vr, vols[-1] / 1e4))
     print('   chg5 %+.2f%% | chg10 %+.2f%% | chg20 %+.2f%%' %
           ((cl2[-1] / cl2[-6] - 1) * 100, (cl2[-1] / cl2[-11] - 1) * 100, (cl2[-1] / cl2[-21] - 1) * 100))
     print('   low10=%.3f | now vs low10 %+.2f%% | now vs MA20 %+.2f%%' %

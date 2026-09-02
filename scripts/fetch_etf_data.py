@@ -95,29 +95,86 @@ def _record(name, status):
         _manifest[name] = status
 
 
+def _em_diff(d):
+    """东财响应通用校验：返回 data.diff 列表；data 缺失/非 dict、diff 缺失/null/非 list 时返回 None。"""
+    data = d.get("data") if isinstance(d, dict) else None
+    if not isinstance(data, dict):
+        return None
+    diff = data.get("diff")
+    return diff if isinstance(diff, list) else None
+
+
 def _default_content_check(name, text):
     """内容结构校验：接口改版/风控页「看似成功实则无效」时拒收，触发换源与重试。
     校验失败返回原因字符串，通过返回 None。"""
     if name.endswith((".json", ".txt")) is False:
         return None
-    if name.startswith(("day_", "week_", "month_", "minute_")):
+    if name.startswith(("day_", "week_", "month_")):
         try:
             d = json.loads(text)
         except ValueError:
             return "非 JSON"
-        inner = (d.get("data") or {})
-        # 腾讯行情包内层键为 sh{code}/sz{code}，K线在 day/qfqday(/week/month) 之一
+        inner = d.get("data")
+        # 腾讯行情包内层键为 sh{code}/sz{code}；K线键随请求频率与复权参数而定：
+        # day/qfqday、week/qfqweek、month/qfqmonth（指数请求 qfq 亦返回 day），必须为非空列表
         if not isinstance(inner, dict) or not inner:
             return "data 为空或非 dict"
         for v in inner.values():
-            if isinstance(v, dict) and any(k in v for k in ("day", "qfqday", "week", "month", "data", "qt")):
-                break
-        else:
-            return "内层缺 day/qfqday/data 等行情键"
-    elif name.startswith("etf_realtime_"):
-        # 腾讯为 ~ 分隔、东财为 JSON diff、新浪为 hq_str_ 变量格式，三者任一即可
-        if ("~" not in text) and ('"diff"' not in text) and ("hq_str_" not in text):
-            return "无行情字段（~ / diff / hq_str_ 均缺失）"
+            if isinstance(v, dict) and any(isinstance(v.get(k), list) and v[k]
+                                            for k in ("day", "qfqday", "week", "qfqweek", "month", "qfqmonth")):
+                return None
+        return "内层缺 day/qfqday/week/month 非空K线列表"
+    elif name.startswith("minute_"):
+        try:
+            d = json.loads(text)
+        except ValueError:
+            return "非 JSON"
+        # 腾讯分时：data.{sh|sz}{code}.data.data 为非空条目列表
+        node = d.get("data")
+        if isinstance(node, dict):
+            for v in node.values():
+                if isinstance(v, dict) and isinstance(v.get("data"), dict):
+                    rows = v["data"].get("data")
+                    if isinstance(rows, list) and rows:
+                        return None
+        return "data.{code}.data.data 缺失/为空"
+    elif name == "etf_realtime_qq.txt":
+        if "~" not in text:
+            return "无 ~ 分隔行情字段"
+    elif name == "etf_realtime_sina.txt":
+        # 新浪限流时返回 hq_str_ 变量但引号内为空，必须要求至少一条非空数据
+        if not re.search(r'hq_str_\w+="[^"]+"', text):
+            return "无 hq_str_ 非空行情（限流空响应或改版）"
+    elif name.startswith("etf_realtime_em"):
+        # 东财批量实时："diff" 子串校验挡不住 "diff":null / "diff":[]，解析后判非空列表
+        try:
+            d = json.loads(text)
+        except ValueError:
+            return "非 JSON"
+        if not _em_diff(d):
+            return "data.diff 缺失/为空"
+    elif name.startswith(("etf_meta_", "top_holdings_")):
+        try:
+            d = json.loads(text)
+        except ValueError:
+            return "非 JSON"
+        if name.startswith("etf_meta_"):
+            data = d.get("data")
+            if not isinstance(data, dict) or not data:
+                return "data 缺失/为空"
+        elif '"fundStocks"' not in text:
+            # 重仓股接口错误响应无此键；黄金等无股票持仓的 ETF fundStocks 为空列表属正常
+            return "缺 fundStocks 键（错误响应或改版）"
+    elif name.startswith(("boards_up", "boards_down")):
+        try:
+            d = json.loads(text)
+        except ValueError:
+            return "非 JSON"
+        if not _em_diff(d):
+            return "data.diff 缺失/为空（非交易时段 f3=0 属正常，diff 须非空）"
+    elif name == "overseas_realtime_sina.txt":
+        if not re.search(r'hq_str_\w+="[^"]+"', text):
+            return "无 hq_str_ 非空行情（限流空响应或改版）"
     elif name in ("index_realtime.txt", "overseas_realtime_qq.txt"):
         if "~" not in text:
             return "无 ~ 分隔行情字段"
@@ -129,14 +186,15 @@ def _default_content_check(name, text):
         # 双源校验：腾讯 fqkline 为 data.{sh|sz}{code}.day/qfqday；东财为 data.klines。
         # 东财 push2his 曾长期返回 503/RemoteDisconnected（2026-09-02 实测），腾讯为主源，
         # 故此处必须兼容两种结构，否则会把可用的腾讯数据误判为改版而拒收。
-        inner = (d.get("data") or {})
-        if isinstance(inner, dict) and inner:
+        inner = d.get("data")
+        if isinstance(inner, dict):
             for v in inner.values():
-                if isinstance(v, dict) and any(k in v for k in ("day", "qfqday")):
+                if isinstance(v, dict) and any(isinstance(v.get(k), list) and v[k]
+                                               for k in ("day", "qfqday")):
                     return None
-        ks = ((d.get("data") or {}).get("klines")) or []
-        if not ks:
-            return "data.klines 为空（腾讯 day/qfqday 亦缺失）"
+            if isinstance(inner.get("klines"), list) and inner["klines"]:
+                return None
+        return "无可用K线（腾讯 day/qfqday 与东财 klines 均缺失/为空）"
     return None
 
 
@@ -154,7 +212,7 @@ def fetch_save(name, urls, timeout=6, headers=None, encoding=None, retries=3, pr
             if not text.strip():
                 continue
             head = text.lstrip()[:200].lower()
-            if head.startswith(("<html", "<!doctype")) or '"data":null' in text:
+            if head.startswith(("<html", "<!doctype")) or re.search(r'"data"\s*:\s*null\b', text):
                 continue
             bad = None
             try:
@@ -448,20 +506,25 @@ NEWS_FOREIGN_RAW = [
 
 
 def _norm_rss_time(raw):
-    """RSS 时间为 GMT/UTC，转北京时间；支持 RFC2822 与 ISO8601。"""
+    """RSS 时间转北京时间；支持 RFC2822 与 ISO8601。
+    带时区偏移的（含已是 +08:00 的）按偏移换算；无时区的视为 GMT/UTC 加 8 小时，
+    避免对已是北京时间的时间重复加 8 小时导致时间超前。"""
     if not raw:
         return ""
     s = str(raw).strip()
+    dt = None
     try:
         dt = email.utils.parsedate_to_datetime(s)
-        return (dt + datetime.timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
     except (TypeError, ValueError, OverflowError):
         pass
-    try:
-        dt = datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
-        return (dt + datetime.timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        return s[:19]
+    if dt is None:
+        try:
+            dt = datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except ValueError:
+            return s[:19]
+    if dt.tzinfo is not None:
+        return dt.astimezone(datetime.timezone(datetime.timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+    return (dt + datetime.timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def parse_news_rss(fname, source):
@@ -532,9 +595,12 @@ def merge_news():
             print(f"警告：消息源 {cn_name} 解析异常：{reason}")
         else:
             items.extend(parsed)
-    # 时效护栏：丢弃陈旧条目（RSS 死源 pubDate 可能冻结在数月前）
-    cutoff_ts = (datetime.datetime.now() - datetime.timedelta(days=MAX_NEWS_AGE_DAYS)).timestamp()
-    fresh, stale = [], 0
+    # 时效护栏：丢弃陈旧条目（RSS 死源 pubDate 可能冻结在数月前）与时间异常超前条目
+    # （时区漂移/源时钟错误会把条目推到未来，污染时间倒序首位）
+    now_ts = datetime.datetime.now().timestamp()
+    cutoff_ts = now_ts - datetime.timedelta(days=MAX_NEWS_AGE_DAYS).total_seconds()
+    future_ts = now_ts + datetime.timedelta(days=1).total_seconds()
+    fresh, stale, ahead = [], 0, 0
     for it in items:
         t = it.get("time") or ""
         try:
@@ -542,12 +608,15 @@ def merge_news():
         except ValueError:
             fresh.append(it)  # 时间不可解析时不误杀，保留由人工/AI 判断
             continue
-        if ts >= cutoff_ts:
+        if ts > future_ts:
+            ahead += 1
+        elif ts >= cutoff_ts:
             fresh.append(it)
         else:
             stale += 1
-    if stale:
-        print(f"提示：已过滤 {stale} 条超过 {MAX_NEWS_AGE_DAYS} 天的陈旧条目（RSS 源可能已停更）")
+    if stale or ahead:
+        print(f"提示：已过滤 {stale} 条超过 {MAX_NEWS_AGE_DAYS} 天的陈旧条目"
+              f"（RSS 源可能已停更）与 {ahead} 条时间异常超前条目（时钟/时区漂移）")
     items = fresh
     seen, uniq = set(), []
     for it in sorted(items, key=lambda x: x["time"] or "", reverse=True):
@@ -568,14 +637,15 @@ def fetch_holdings_ann(codes):
         if not os.path.exists(p):
             continue
         try:
-            d = json.load(open(p, encoding="utf-8"))
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f)
             # 递归定位 fundStocks 列表并展平（_find_lists 直接返回条目 dict，不依赖 Datas 固定层级）
             for s in _find_lists(d, "fundStocks"):
                 g = str(s.get("GPDM") or "")
                 if g.isdigit() and len(g) == 6:
                     stocks.setdefault(g, s.get("GPJC") or "")
         except Exception as e:
-            print(f"重仓股解析 {code} 失败：{type(e).__name__}: {e}")
+            print(f"重仓股解析 {c} 失败：{type(e).__name__}: {e}")
             continue
     results = []
     cutoff = (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
@@ -588,11 +658,14 @@ def fetch_holdings_ann(codes):
             try:
                 t = http_get(url_tpl.format(code=code), timeout=6)
                 d = json.loads(t)
-                for it in (d.get("data") or {}).get("list") or []:
+                # 按键名递归定位公告列表，不依赖 data.list 固定路径（key 漂移时走 0 条告警而非静默）
+                for it in _find_lists(d, "list", must_have="title"):
+                    title = it.get("title") or ""
+                    if not title:
+                        continue
                     date = (it.get("notice_date") or "")[:10]
                     if date >= cutoff:
-                        results.append({"code": code, "name": name, "date": date,
-                                        "title": it.get("title") or ""})
+                        results.append({"code": code, "name": name, "date": date, "title": title})
             except Exception as e:
                 print(f"公告采集 {name}({code}) 失败：{type(e).__name__}: {e}")
 
@@ -671,6 +744,8 @@ def fetch_global(codes):
                     price, iopv = float(parts[3]), float(parts[78])
                 except ValueError:
                     continue
+                if iopv <= 0:
+                    continue  # 无 IOPV 报价的标的字段为 0：跳过该行，避免除零拖垮整个 IOPV 文件
                 iopv_rows.append({"code": parts[2], "name": parts[1], "price": price,
                                   "iopv": iopv, "premium_pct": round((price / iopv - 1) * 100, 3)})
         if iopv_rows:
