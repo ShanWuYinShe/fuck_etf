@@ -78,8 +78,8 @@
 | `news_163.txt` | `news_netease.txt` | `_163` 是域名，改 `_netease` 更明确 |
 | `news_sina_roll.json` | 不变 | 清晰 |
 | `news_google.json` | 不变 | 清晰 |
-| `news_yahoo.json` | 不变 | 清晰 |
-| `news_bbc.json` | 不变 | 清晰 |
+| `news_google_en.json` | 新增 | Google News 英文版 |
+| `news_cnbc.json` | 新增 | CNBC（2026-09 起替代失效的 Yahoo/BBC） |
 | `news_marketwatch.json` | 不变 | 清晰 |
 
 ### 元数据
@@ -127,8 +127,8 @@
 ├── news_wallstcn.json          # 华尔街见闻
 ├── news_netease.txt            # 网易 7x24（原 news_163.txt）
 ├── news_sina_roll.json         # 新浪滚动财经
-├── news_google.json            # Google News（走代理）
-├── news_yahoo.json             # Yahoo 财经（走代理）
-├── news_bbc.json               # BBC 商业（走代理）
+├── news_google.json            # Google News 中文（走代理）
+├── news_google_en.json         # Google News 英文（走代理）
+├── news_cnbc.json              # CNBC（走代理）
 └── news_marketwatch.json       # MarketWatch（走代理）
 ```
