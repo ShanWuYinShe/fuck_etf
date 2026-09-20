@@ -1,0 +1,20 @@
+# 最小 CI：配置校验 + 离线单测（仓库零第三方依赖，无需安装步骤）。
+# action 版本以发布页最新 tag 固定（setup-python v7.0.0 / checkout v7.0.1，2026-09-21 查询）。
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.12"
+      - name: 配置校验与脚本语法检查
+        run: python3 scripts/check_config.py
+      - name: 离线单测
+        run: python3 -m unittest discover -s tests -v

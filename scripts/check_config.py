@@ -8,8 +8,8 @@ config/holdings.json 与 config/etf_list.txt 是全部采集与分析的唯一�
 
     python3 scripts/check_config.py
 
-顺带对 scripts/ 全部 .py 做 py_compile 语法检查（仓库无 lint/CI，这是
-最接近"测试"的机械校验）。退出码 0 = 通过；非 0 = 配置或语法有问题。
+顺带对 scripts/ 全部 .py 做 py_compile 语法检查（零依赖的离线机械校验，
+CI 中与 tests/ 单测一并执行）。退出码 0 = 通过；非 0 = 配置或语法有问题。
 """
 import json
 import os

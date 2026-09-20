@@ -12,6 +12,7 @@ A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断�
 - 晨间预案：`python3 scripts/morning_plan.py`（只采集数据，提示交给 AI 分析）
 - 盘中监控：`python3 scripts/monitor.py`（`--once` 单轮 / `--until-close` 盘中会话，仅采集）
 - 配置校验：`python3 scripts/check_config.py`（改 `config/` 后离线校验结构，无需联网）
+- 离线单测：`python3 -m unittest discover -s tests -v`（覆盖 fetch_etf_data.py 解析核心，fixtures 为真实接口样本；push/PR 由 GitHub Actions CI 自动执行同样检查）
 
 所有脚本均在 `scripts/` 目录，用 Python 标准库实现，可在任意目录、任意平台（Windows/macOS/Linux）运行。配置在 `config/` 目录（`holdings.json`/`etf_list.txt`），兼容根目录旧位置。
 
