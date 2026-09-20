@@ -11,6 +11,7 @@ A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断�
 - 采集：`python3 scripts/fetch_etf_data.py`（实时三源、分时、日K、十一源快讯并行合并 [国内7源直连+国外4源走代理，代理在脚本顶部 PROXY 配置] 与重仓股公告、指数、板块、外盘、ETF 份额/重仓 → `.workwork/data/`）；盘后只刷消息面：`python3 scripts/fetch_etf_data.py --news-only`
 - 晨间预案：`python3 scripts/morning_plan.py`（只采集数据，提示交给 AI 分析）
 - 盘中监控：`python3 scripts/monitor.py`（`--once` 单轮 / `--until-close` 盘中会话，仅采集）
+- 配置校验：`python3 scripts/check_config.py`（改 `config/` 后离线校验结构，无需联网）
 
 所有脚本均在 `scripts/` 目录，用 Python 标准库实现，可在任意目录、任意平台（Windows/macOS/Linux）运行。配置在 `config/` 目录（`holdings.json`/`etf_list.txt`），兼容根目录旧位置。
 
@@ -18,7 +19,7 @@ A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断�
 
 - `.workwork/` 全部为本机数据（已 gitignore，不入库）：本项目兼作**脚本运行数据目录**（历史原因，区别于全局定义的"仅 AI 中间文件"）。`data/` 只存**最近一轮**采集结果，**不保留历史数据**——采集失败即删旧文件（`_manifest.json` 状态仅 ok/fail），每轮启动自动清理已移出自选的标的缓存；快讯每轮实时获取，AI 分析前若快讯滞后应先 `--news-only` 刷新。
 - **解析健壮性约定**：免费接口 JSON 结构（key 名/层级）随时可能改版，解析一律走递归工具 `_find_lists`（按键名定位条目列表，不依赖固定路径）+ `_default_content_check`（写入前校验结构，漂移即拒收触发重试/换源）；消息源解析 0 条或结构校验未过会在 stdout 打印告警，AI 分析时若见「解析异常」告警应先修复再采。
-- **入库数据源（git 管理，可跨设备同步）**：`config/holdings.json`（持仓唯一数据源，模板 `config/holdings.example.json`）与 `config/etf_list.txt`（自选标的清单，每行一个 6 位代码），兼容根目录旧位置。改持仓/成本/自选只改这两个文件，AI 每次分析前必须读取它们，不依赖提示词内旧数据,config/holdings.json中如果 batch 为空说明是空仓。
+- **入库数据源（git 管理，可跨设备同步）**：`config/holdings.json`（持仓唯一数据源，模板 `config/holdings.example.json`）与 `config/etf_list.txt`（自选标的清单，每行一个 6 位代码），兼容根目录旧位置。改持仓/成本/自选只改这两个文件，AI 每次分析前必须读取它们，不依赖提示词内旧数据,config/holdings.json 中某持仓的 `batches` 为空数组（`[]`）说明是空仓。
 - 提示词 `PROMPT_full.md` **只含策略规则**（数据源说明、消息面与操作纪律），不内嵌持仓/标的/行情数据；AI 需自行读取 `config/holdings.json` 与 `config/etf_list.txt` 获取最新持仓与自选列表。
 
 ## 约束
