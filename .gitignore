@@ -13,7 +13,7 @@ _tmp*.png
 .tmp*.png
 *.tmp.png
 /tmp/
-# 本地日志（自动化任务产生，见 automations/install.py）
+# 本地日志（脚本运行在本机产生；运行数据统一落在 .workwork/ 数据目录，此处兜底防误提交）
 .etf_logs/
 *.log
 # 编辑器/系统
