@@ -62,7 +62,8 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
 
 # 本地代理（用于国外新闻源；留空 "" 则跳过国外源，仅采国内源）
-PROXY = "http://127.0.0.1:10809"
+# 可用环境变量 ETF_NEWS_PROXY 覆盖：未设置时用下方默认值，设为空串同样跳过国外源
+PROXY = os.environ.get("ETF_NEWS_PROXY", "http://127.0.0.1:10809")
 
 # 逐只 ETF 并行度（温和，避免触发免费接口限流）
 MAX_WORKERS = 5
@@ -875,7 +876,10 @@ def main():
     summary = write_manifest(fetch_time_str)
     print(f"完成：{len(codes)} 只 ETF，{summary['ok']} ok / {summary['fail']} fail，"
           f"耗时 {elapsed:.1f}s → {DATA_DIR}/")
-    return 0
+    # 任一采集项失败即返回 1；--news-only 同样如实反映（本轮消息面文件也在 _manifest 中，
+    # 全部源失败时 news_merged.json 已被删除，必须让调用方感知数据不全）。
+    # 调用方：morning_plan.py 透传退出码；monitor.py 循环内忽略返回值继续监控，均无回归。
+    return 1 if summary["fail"] else 0
 
 
 if __name__ == "__main__":

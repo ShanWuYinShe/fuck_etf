@@ -17,6 +17,7 @@ import time
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 FETCH = [sys.executable, os.path.join(SCRIPT_DIR, "fetch_etf_data.py")]
+FETCH_TIMEOUT = 600  # 单轮采集超时（秒）：正常一轮约几十秒，超时视为挂死，强制终止防阻塞监控循环
 
 
 def hhmm(now=None):
@@ -30,7 +31,13 @@ def in_trading_window(now=None):
 
 
 def run_once():
-    return subprocess.call(FETCH)
+    try:
+        # subprocess.call 超时会先 kill 子进程再抛 TimeoutExpired，不会留下僵尸采集进程
+        return subprocess.call(FETCH, timeout=FETCH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        print(f"{datetime.datetime.now():%H:%M:%S} 警告：单轮采集超过 {FETCH_TIMEOUT}s，"
+              f"已强制终止本轮，继续监控循环")
+        return 1
 
 
 def main():
