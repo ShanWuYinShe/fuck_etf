@@ -6,13 +6,6 @@ A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断�
 
 通用约束（Git 规范、Commit 格式、验证流程等）以全局 `~/AGENTS.md` 为准，本文件只记项目特有事实，不得放宽或违背全局约束。
 
-## 按需加载的 skill（.agents/skills/）
-
-| skill | 何时加载 |
-|---|---|
-| etf-trading-rules | 输出条件单/做T/止盈止损、判定大盘与板块环境时（策略规则速览，权威来源仍是 PROMPT_full.md） |
-| etf-analysis-session | 执行每轮分析会话九步流程时 |
-
 
 ## 常用命令（跨平台，仅需 Python 3）
 
