@@ -7,7 +7,7 @@ description: ETF 每轮分析会话九步标准流程。触发：执行搜集消
 
 搜集消息面 + 结合持仓/自选 + 分析未来几日走势 + 给今日最优操作，每轮按此顺序执行（脚本只采集、AI 只分析，禁止自动下单）：
 
-1. 采集：python3 scripts/fetch_etf_data.py（盘后只刷消息面用 --news-only；午休 11:30-13:00、收盘后暂停采集）。
+1. 采集：python3 scripts/fetch_etf_data.py（盘后只刷消息面用 --news-only）；盘中循环采集用 scripts/monitor.py，午休 11:30-13:00 与收盘后自动暂停。
 2. 读持仓/自选：config/holdings.json + config/etf_list.txt（唯一数据源，兼容根目录，禁止用旧快照；持仓成本/份额/可卖以该文件为准）。
 3. 消息面前置：读 `.workwork/data/` 下的 news_merged.json（十一源合并去重，取最新 30 条）+ news_ann.json（重仓股近 3 天公告）；快讯滞后先 --news-only 刷新；按 PROMPT_full 思路对持仓/待交易品种做主动联网搜索补充（半导体/黄金/创新药/通信等）。
 4. 板块走势判定（PROMPT_full「2.1 板块走势」）：读 boards_up.json + boards_down.json（行业板块前 10 强/10 弱，data.diff[] 中 f14 板块名、f3 涨跌幅、f62 主力净流入；非交易时段 f3=0、f62=- 属正常），把每只持仓/自选映射到所属板块得强度三级（强/中/弱/退潮），叠加到大盘环境与个股前瞻。
