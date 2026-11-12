@@ -17,6 +17,16 @@ A股ETF交易辅助：**脚本只负责采集数据，分析与消息面判断�
 
 所有脚本均在 `scripts/` 目录，用 Python 标准库实现，可在任意目录、任意平台（Windows/macOS/Linux）运行。配置在 `config/` 目录（`holdings.json`/`etf_list.txt`），兼容根目录旧位置。
 
+## CI 门禁与本地验证分工
+
+重活（配置校验、离线单测）一律交给 GitHub Actions，本地只跑秒级检查。
+完整流程见全局 skill `github-ci-flow`：开发分支推送 → `gh pr create` → `gh pr checks --watch`
+全绿 → `gh pr merge --rebase --delete-branch` → 本地 `git pull --ff-only` 并清理 worktree。
+
+- 本地（提交前，秒级）：`python3 scripts/check_config.py`（配置结构与脚本语法离线校验，实测约 0.05s）；改脚本时加 `python3 -m py_compile scripts/<改动脚本>`
+- CI 覆盖（`.github/workflows/ci.yml`，job `check`）：`python3 scripts/check_config.py` + `python3 -m unittest discover -s tests -v`（离线单测，fixtures 为真实接口样本），push 全分支与 PR 均触发
+- CI 覆盖不到、必须本地/真机验证的：真实联网冒烟 `python3 scripts/fetch_etf_data.py --news-only`（依赖真实行情/快讯接口与代理，CI 不联网），改 `fetch_etf_data.py` 解析逻辑后必须本地执行且 stdout 无「解析异常」告警
+
 ## 数据与配置
 
 - `.workwork/` 全部为本机数据（已 gitignore，不入库）：本项目兼作**脚本运行数据目录**（区别于全局定义的"仅 AI 中间文件"）。`data/` 只存**最近一轮**采集结果，**不保留历史数据**——采集失败即删既有数据文件（`_manifest.json` 状态仅 ok/fail），每轮启动自动清理已移出自选的标的缓存；快讯每轮实时获取，AI 分析前若快讯滞后应先 `--news-only` 刷新。
